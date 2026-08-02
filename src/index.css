@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-paper: #f7f6f3;
+  --color-surface: #ffffff;
+  --color-ink: #1c1b18;
+  --color-muted: #6e6c64;
+  --color-accent: #2f4858;
+  --color-line: #e2e0d8;
+  --color-correct: #3f6b4a;
+  --color-incorrect: #a44a3f;
+
+  --color-paper-dark: #1a1a17;
+  --color-surface-dark: #232320;
+  --color-ink-dark: #edebe5;
+  --color-muted-dark: #9a968a;
+  --color-line-dark: #38362f;
+
+  --font-serif:
+    Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
