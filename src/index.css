@@ -1,28 +1,98 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap");
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-paper: #f7f6f3;
-  --color-surface: #ffffff;
-  --color-ink: #1c1b18;
-  --color-muted: #6e6c64;
-  --color-accent: #2f4858;
-  --color-line: #e2e0d8;
-  --color-correct: #3f6b4a;
-  --color-incorrect: #a44a3f;
+  /* Study Ledger — index cards, marker tabs, graded-paper stamps. */
+  --color-paper: #efece1;
+  --color-surface: #fbfaf4;
+  --color-ink: #171510;
+  --color-muted: #6f6a5a;
+  --color-accent: #7a8a00;
+  --color-line: #dcd7c4;
+  --color-correct: #1f7a4d;
+  --color-incorrect: #b23b2e;
 
-  --color-paper-dark: #1a1a17;
-  --color-surface-dark: #232320;
-  --color-ink-dark: #edebe5;
-  --color-muted-dark: #9a968a;
-  --color-line-dark: #38362f;
+  --color-paper-dark: #10161c;
+  --color-surface-dark: #182029;
+  --color-ink-dark: #eee9da;
+  --color-muted-dark: #8b94a0;
+  --color-accent-dark: #e6ff4d;
+  --color-line-dark: #29323d;
 
-  --font-serif:
-    Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  /* marker tab palette, cycled across cards */
+  --color-marker-1: #e6ff4d;
+  --color-marker-2: #ff6fa5;
+  --color-marker-3: #57c7ff;
+  --color-marker-4: #ff9f45;
+
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
 }
 
 body {
   font-family: var(--font-sans);
+}
+
+.accent {
+  color: var(--color-accent);
+}
+.dark .accent {
+  color: var(--color-accent-dark);
+}
+
+/* --- Signature element: the highlighter swipe --- */
+.hl {
+  position: relative;
+  display: inline;
+}
+.hl::before {
+  content: "";
+  position: absolute;
+  left: -0.2em;
+  right: -0.2em;
+  top: 0.14em;
+  bottom: 0.08em;
+  background: var(--hl-color, var(--color-marker-1));
+  transform: rotate(-0.6deg) skewX(-6deg);
+  border-radius: 2px 6px 3px 5px;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.hl.hl-on::before,
+.group:hover .hl::before,
+button:hover .hl::before {
+  opacity: 1;
+}
+.dark .hl::before {
+  mix-blend-mode: normal;
+  opacity: 0;
+}
+.dark .hl.hl-on::before,
+.dark .group:hover .hl::before,
+.dark button:hover .hl::before {
+  opacity: 0.85;
+}
+.hl::before {
+  mix-blend-mode: multiply;
+}
+.hl.hl-on::before {
+  opacity: 0.8;
+}
+
+/* index-card tab strip */
+.card-tab {
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+}
+
+/* graded-paper stamp */
+.stamp {
+  border: 2px dashed currentColor;
+  border-radius: 999px;
+  transform: rotate(-6deg);
 }

@@ -16,30 +16,36 @@ export default function History() {
 
   if (history.length === 0) {
     return (
-      <p className="text-muted dark:text-muted-dark">
+      <p className="text-sm text-muted dark:text-muted-dark">
         Nothing here yet — completed lessons will appear in this list.
       </p>
     );
   }
 
   return (
-    <div>
-      {history.map((entry) => (
+    <div className="flex flex-col gap-2">
+      {history.map((entry, i) => (
         <div
           key={entry.id}
-          className="border-b border-line dark:border-line-dark py-4"
+          className="border border-line dark:border-line-dark rounded-lg overflow-hidden"
         >
           <div
-            className="flex justify-between items-baseline cursor-pointer"
+            className="flex justify-between items-center gap-4 cursor-pointer px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.03] transition-colors"
             onClick={() =>
               setExpandedId(expandedId === entry.id ? null : entry.id)
             }
           >
-            <div>
-              <p className="font-serif text-ink dark:text-ink-dark">
+            <span
+              className="shrink-0 w-1.5 self-stretch -my-3 -ml-4"
+              style={{
+                background: `var(--color-marker-${(i % 4) + 1})`,
+              }}
+            />
+            <div className="min-w-0">
+              <p className="font-display font-medium text-ink dark:text-ink-dark truncate">
                 {entry.title}
               </p>
-              <p className="text-sm text-muted dark:text-muted-dark">
+              <p className="font-mono text-xs text-muted dark:text-muted-dark mt-0.5">
                 {entry.career} · {entry.date} · {entry.score}/
                 {entry.quiz.length}
               </p>
@@ -49,14 +55,14 @@ export default function History() {
                 e.stopPropagation();
                 handleDelete(entry.id);
               }}
-              className="text-sm text-muted dark:text-muted-dark hover:text-incorrect transition-colors"
+              className="ml-auto shrink-0 font-mono text-xs uppercase tracking-wide text-muted dark:text-muted-dark hover:text-incorrect transition-colors"
             >
               Remove
             </button>
           </div>
 
           {expandedId === entry.id && (
-            <p className="whitespace-pre-line text-sm text-ink dark:text-ink-dark leading-relaxed mt-4">
+            <p className="whitespace-pre-line text-sm text-ink dark:text-ink-dark leading-relaxed px-4 pb-4">
               {entry.lesson}
             </p>
           )}

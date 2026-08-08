@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import CareerSelect from "./components/CareerSelect";
+import ModeSelect from "./components/ModeSelect";
 import Lesson from "./components/Lesson";
-import Chat from "./components/Chat";
+import Chat from "./components/chat";
 import History from "./components/History";
+import Coder from "./components/Coder";
 import { getTheme, setTheme } from "./api/theme";
 
 const TABS = [
@@ -11,8 +12,10 @@ const TABS = [
   { key: "history", label: "History" },
 ];
 
+const DEFAULT_CAREER = "General";
+
 function App() {
-  const [selectedCareer, setSelectedCareer] = useState(null);
+  const [mode, setMode] = useState(null); // "academic" | "coder" | null
   const [activeTab, setActiveTab] = useState("lesson");
   const [dark, setDark] = useState(getTheme() === "dark");
 
@@ -23,51 +26,76 @@ function App() {
 
   return (
     <div className="min-h-screen bg-paper dark:bg-paper-dark transition-colors">
-      <div className="max-w-2xl mx-auto relative">
-        <button
-          onClick={() => setDark(!dark)}
-          className="absolute top-6 right-6 text-xs text-muted dark:text-muted-dark underline underline-offset-2"
-        >
-          {dark ? "Light mode" : "Dark mode"}
-        </button>
-
-        {!selectedCareer ? (
-          <CareerSelect onSelect={setSelectedCareer} />
-        ) : (
-          <div className="px-6 pt-16 pb-16">
-            <div className="flex items-baseline justify-between mb-6">
-              <button
-                onClick={() => setSelectedCareer(null)}
-                className="text-sm text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
-              >
-                Change career
-              </button>
-              <span className="font-serif text-ink dark:text-ink-dark">
-                {selectedCareer}
-              </span>
-            </div>
-
-            <div className="flex gap-6 border-b border-line dark:border-line-dark mb-8">
-              {TABS.map((tab) => (
+      <div className="max-w-2xl mx-auto px-6">
+        <header className="flex items-center justify-between pt-8 pb-8">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[11px] tracking-widest text-ink dark:text-ink-dark border border-line dark:border-line-dark px-2 py-1 rounded">
+              EDV
+            </span>
+            <span className="font-display font-semibold text-base text-ink dark:text-ink-dark">
+              Eduvance
+            </span>
+            {mode && (
+              <>
+                <span className="text-muted dark:text-muted-dark text-sm">
+                  /
+                </span>
                 <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`pb-3 text-sm transition-colors ${
-                    activeTab === tab.key
-                      ? "text-ink dark:text-ink-dark border-b border-ink dark:border-ink-dark"
-                      : "text-muted dark:text-muted-dark"
-                  }`}
+                  onClick={() => setMode(null)}
+                  className="group text-sm text-muted dark:text-muted-dark hover:text-ink dark:hover:text-ink-dark transition-colors"
                 >
-                  {tab.label}
+                  <span
+                    className="hl"
+                    style={{ "--hl-color": "var(--color-marker-1)" }}
+                  >
+                    {mode === "coder" ? "Coder" : "Academic"}
+                  </span>
                 </button>
-              ))}
-            </div>
-
-            {activeTab === "lesson" && <Lesson career={selectedCareer} />}
-            {activeTab === "chat" && <Chat />}
-            {activeTab === "history" && <History />}
+              </>
+            )}
           </div>
-        )}
+          <button
+            onClick={() => setDark(!dark)}
+            className="font-mono text-[11px] tracking-wide text-muted dark:text-muted-dark border border-line dark:border-line-dark rounded px-2 py-1 hover:text-ink dark:hover:text-ink-dark hover:border-ink dark:hover:border-ink-dark transition-colors"
+          >
+            {dark ? "LIGHT" : "DARK"}
+          </button>
+        </header>
+
+        <main className="pb-24">
+          {!mode && <ModeSelect onSelect={setMode} />}
+
+          {mode === "coder" && <Coder dark={dark} />}
+
+          {mode === "academic" && (
+            <div>
+              <div className="flex gap-6 border-b border-line dark:border-line-dark mb-8">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`pb-3 font-mono text-xs tracking-wide uppercase transition-colors ${
+                      activeTab === tab.key
+                        ? "text-ink dark:text-ink-dark border-b-2 border-marker-1"
+                        : "text-muted dark:text-muted-dark border-b-2 border-transparent hover:text-ink dark:hover:text-ink-dark"
+                    }`}
+                    style={
+                      activeTab === tab.key
+                        ? { borderColor: "var(--color-marker-1)" }
+                        : undefined
+                    }
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === "lesson" && <Lesson career={DEFAULT_CAREER} />}
+              {activeTab === "chat" && <Chat />}
+              {activeTab === "history" && <History />}
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );
