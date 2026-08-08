@@ -1,11 +1,13 @@
+import { getProvider } from "./provider";
+
 const BASE_URL = "http://127.0.0.1:8000";
 
-export async function generateLesson(career, topic) {
+export async function generateLesson(career, topic, notes = "") {
   try {
     const response = await fetch(`${BASE_URL}/api/lesson`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ career, topic }),
+      body: JSON.stringify({ career, topic, notes, provider: getProvider() }),
     });
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
     return await response.json();
@@ -20,7 +22,11 @@ export async function getNextTopic(career, previousTopics) {
     const response = await fetch(`${BASE_URL}/api/next-topic`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ career, previous_topics: previousTopics }),
+      body: JSON.stringify({
+        career,
+        previous_topics: previousTopics,
+        provider: getProvider(),
+      }),
     });
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
     const data = await response.json();
@@ -36,7 +42,7 @@ export async function regenerateQuiz(career, topic, lesson) {
     const response = await fetch(`${BASE_URL}/api/quiz`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ career, topic, lesson }),
+      body: JSON.stringify({ career, topic, lesson, provider: getProvider() }),
     });
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
     const data = await response.json();

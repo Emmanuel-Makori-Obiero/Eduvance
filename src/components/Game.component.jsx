@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { generateGame } from "../api/game";
 import Spinner from "./Spinner";
 
-// A Castlevania-style side-scrolling platformer, built from the SAME
-// AI-generated { checkpoints, enemies } shape as game.jsx — just laid
-// out along a scrolling x-axis with gravity/jump instead of top-down
-// walking. All sprites are original canvas-drawn shapes (no copyrighted
-// art), and the quiz-battle screen is reused.
-export default function Platformer({ career, topic, notes = "", onClose }) {
+export default function Game({ career, topic, notes = "", onClose }) {
   const [gameData, setGameData] = useState(null);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -16,6 +11,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
 
   const newGame = () => setRetryKey((k) => k + 1);
 
+  // fetch the AI-generated level
   useEffect(() => {
     let cancelled = false;
     setGameData(null);
@@ -35,9 +31,10 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
     };
   }, [career, topic, notes, retryKey]);
 
+  // run the game engine once we have data + the canvas is mounted
   useEffect(() => {
     if (!gameData || !canvasRef.current || !rootRef.current) return;
-    const cleanup = runPlatformerEngine(
+    const cleanup = runGameEngine(
       gameData,
       canvasRef.current,
       rootRef.current,
@@ -78,6 +75,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
 
       {gameData && (
         <div className="w-full max-w-[900px] mx-auto font-mono">
+          {/* HUD */}
           <div className="flex justify-between items-center mb-2 px-1">
             <div>
               <div className="text-[10px] tracking-widest text-yellow-500">
@@ -102,13 +100,33 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
           </div>
           <div className="flex gap-1 mb-2" data-el="hpRow"></div>
 
-          <div className="relative border-[6px] border-neutral-800 rounded shadow-lg bg-[#14141c] overflow-hidden">
+          {/* Game canvas */}
+          <div className="relative border-[6px] border-neutral-800 rounded shadow-lg bg-[#5c2030] overflow-hidden">
             <canvas
               ref={canvasRef}
               width={900}
-              height={420}
-              style={{ display: "block", width: "100%", height: "auto" }}
+              height={560}
+              style={{
+                display: "block",
+                width: "100%",
+                height: "auto",
+                cursor: "crosshair",
+              }}
             />
+            <div
+              data-el="compass"
+              className="absolute top-3 right-3 w-11 h-11 bg-neutral-900 border-[3px] border-yellow-400 flex items-center justify-center pointer-events-none"
+            >
+              <svg
+                data-el="arrowSvg"
+                viewBox="0 0 24 24"
+                width="22"
+                height="22"
+                style={{ transition: "transform 0.15s linear" }}
+              >
+                <path d="M12 2 L18 14 L12 10.5 L6 14 Z" fill="#ffd94a" />
+              </svg>
+            </div>
 
             {/* Dialogue box */}
             <div
@@ -140,7 +158,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
               </button>
             </div>
 
-            {/* Battle screen (reused) */}
+            {/* Battle screen */}
             <div
               data-el="battleScreen"
               className="hidden absolute inset-0 bg-black/90 flex-col items-center p-3 overflow-y-auto"
@@ -151,9 +169,9 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
               ></div>
               <canvas
                 data-el="enemyCanvas"
-                width={140}
-                height={100}
-                style={{ width: 100, height: "auto" }}
+                width={160}
+                height={120}
+                style={{ width: 120, height: "auto" }}
               ></canvas>
               <div className="w-full max-w-sm mt-2 shrink-0">
                 <div className="text-[10px] tracking-widest text-red-400 mb-0.5">
@@ -224,8 +242,8 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
           </div>
 
           <div className="text-xs text-muted dark:text-muted-dark mt-2">
-            Arrow keys / A D to run, Space / W to jump. Reach each flag in
-            order. Touch a villain to battle it.
+            Arrow keys / WASD to move, or click to jump-travel. Follow the
+            compass. Bump a villain to battle it.
           </div>
         </div>
       )}
@@ -234,79 +252,34 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
 }
 
 // ---------------------------------------------------------------------
-// Engine: side-scrolling platformer built from checkpoints (laid out
-// left-to-right as flags along the ground) and enemies (ground-patrolling).
+// Self-contained game engine. Scoped to `root` (a container element)
+// instead of document.getElementById, so it doesn't leak outside this
+// component and can be safely torn down on unmount.
 // ---------------------------------------------------------------------
-function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
+function runGameEngine(gameData, canvas, root, onWinNewGame) {
   const $ = (name) => root.querySelector(`[data-el="${name}"]`);
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
 
-  const GROUND_Y = 360;
-  const GRAVITY = 0.6;
-  const JUMP_V = -11;
-  const SPEED = 3.2;
-  const SPACING = 420; // horizontal distance between checkpoints
-  const WORLD_WIDTH = gameData.checkpoints.length * SPACING + 300;
-
-  // Lay checkpoints out left-to-right as flags on the ground.
-  const checkpoints = gameData.checkpoints.map((cp, i) => ({
-    ...cp,
-    wx: 220 + i * SPACING,
-    wy: GROUND_Y,
-  }));
-
-  // Floating platforms scattered between checkpoints so jumping has a
-  // purpose beyond clearing enemies — small ledges you can land on.
-  const PLATFORM_W = 90,
-    PLATFORM_H = 16;
-  let platforms = [];
-  for (let i = 0; i < checkpoints.length - 1; i++) {
-    const startX = checkpoints[i].wx + 100;
-    const endX = checkpoints[i + 1].wx - 100;
-    const span = endX - startX;
-    if (span < 120) continue;
-    const count = span > 260 ? 2 : 1;
-    for (let k = 0; k < count; k++) {
-      platforms.push({
-        x: startX + (span * (k + 1)) / (count + 1) - PLATFORM_W / 2,
-        y: GROUND_Y - 70 - (k % 2 === 0 ? 0 : 40),
-        w: PLATFORM_W,
-        h: PLATFORM_H,
-      });
-    }
-  }
-
   const enemyData = gameData.enemies || [];
-  let enemies = enemyData.map((e, i) => {
-    const baseX = 220 + (e.after ?? 0) * SPACING + SPACING * 0.5;
-    return {
-      ...e,
-      x: baseX,
-      spawnX: baseX,
-      y: GROUND_Y,
-      dir: 1,
-      hp: 100,
-      maxHp: 100,
-      defeated: false,
-    };
-  });
+  let enemies = enemyData.map((e) => ({
+    ...e,
+    x: e.spawn.x,
+    y: e.spawn.y,
+    dir: 1,
+    hp: 100,
+    maxHp: 100,
+    defeated: false,
+  }));
 
   const player = {
     x: 60,
-    y: GROUND_Y,
-    vy: 0,
-    onGround: true,
-    facing: 1,
-    moving: false,
+    y: 500,
     hp: 100,
     maxHp: 100,
-    flash: 0,
+    facing: 1,
+    moving: false,
   };
-
-  let particles = [];
-  let shake = 0;
-  let camX = 0;
   let currentIndex = 0;
   let score = 0;
   let frame = 0;
@@ -315,271 +288,202 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   let activeEnemy = null;
   let battleQIndex = 0;
   let enemyWobble = 0;
-  let lastSafeX = 60;
+  let lastSafeCheckpointPos = { x: 60, y: 500 };
   let running = true;
   let rafId;
 
-  const currentCheckpoint = () => checkpoints[currentIndex];
-
-  function spawnParticles(x, y, color, count = 8) {
-    for (let i = 0; i < count; i++) {
-      particles.push({
-        x,
-        y,
-        vx: (Math.random() - 0.5) * 4,
-        vy: -Math.random() * 3 - 1,
-        life: 20 + Math.random() * 10,
-        color,
-      });
-    }
-  }
-
-  function updateParticles() {
-    particles.forEach((p) => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.2;
-      p.life--;
-    });
-    particles = particles.filter((p) => p.life > 0);
-  }
-
-  function drawParticles() {
-    particles.forEach((p) => {
-      ctx.globalAlpha = Math.max(0, p.life / 30);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - camX - 2, p.y - 2, 4, 4);
-    });
-    ctx.globalAlpha = 1;
-  }
+  const currentCheckpoint = () => gameData.checkpoints[currentIndex];
+  const distanceTo = (pos) => Math.hypot(player.x - pos.x, player.y - pos.y);
 
   function drawBackground() {
-    // sky gradient
-    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    grad.addColorStop(0, "#0d0d1a");
-    grad.addColorStop(1, "#1c1c30");
-    ctx.fillStyle = grad;
+    ctx.fillStyle = "#4a1830";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // moon
-    ctx.beginPath();
-    ctx.arc(canvas.width - 100, 70, 30, 0, Math.PI * 2);
-    ctx.fillStyle = "#e8e4c9";
-    ctx.fill();
-
-    // far silhouette layer (slowest parallax)
-    ctx.fillStyle = "#141428";
-    for (let i = -1; i < 8; i++) {
-      const hx = i * 260 - ((camX * 0.15) % 260);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    for (let i = 0; i < canvas.width; i += 40) {
       ctx.beginPath();
-      ctx.moveTo(hx, GROUND_Y + 20);
-      ctx.lineTo(hx + 60, GROUND_Y - 90);
-      ctx.lineTo(hx + 130, GROUND_Y - 40);
-      ctx.lineTo(hx + 200, GROUND_Y + 20);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // mid hill layer (medium parallax)
-    ctx.fillStyle = "#22223f";
-    for (let i = -1; i < 8; i++) {
-      const hx = i * 220 - ((camX * 0.35) % 220);
-      ctx.beginPath();
-      ctx.arc(hx, GROUND_Y + 40, 130, Math.PI, 0);
-      ctx.fill();
-    }
-
-    // ground
-    ctx.fillStyle = "#2c2118";
-    ctx.fillRect(0, GROUND_Y + 20, canvas.width, canvas.height - GROUND_Y - 20);
-    ctx.fillStyle = "#4a3520";
-    ctx.fillRect(0, GROUND_Y + 20, canvas.width, 6);
-    // ground texture lines
-    ctx.strokeStyle = "rgba(0,0,0,0.15)";
-    for (let i = 0; i < canvas.width; i += 24) {
-      const gx = (i - camX * 0.9) % canvas.width;
-      ctx.beginPath();
-      ctx.moveTo(gx, GROUND_Y + 26);
-      ctx.lineTo(gx, canvas.height);
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i, canvas.height);
       ctx.stroke();
     }
   }
 
-  function drawPlatforms() {
-    platforms.forEach((p) => {
-      const sx = p.x - camX;
-      if (sx < -p.w || sx > canvas.width + p.w) return;
-      ctx.fillStyle = "#5a3f28";
-      ctx.fillRect(sx, p.y, p.w, p.h);
-      ctx.fillStyle = "#7a5a38";
-      ctx.fillRect(sx, p.y, p.w, 4);
-      ctx.strokeStyle = "#2a1c10";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx, p.y, p.w, p.h);
-    });
-  }
-
-  function drawFlags() {
-    checkpoints.forEach((cp, i) => {
-      const sx = cp.wx - camX;
-      if (sx < -60 || sx > canvas.width + 60) return;
+  function drawCheckpoints() {
+    gameData.checkpoints.forEach((cp, i) => {
       const visited = i < currentIndex;
       const isCurrent = i === currentIndex;
-      ctx.strokeStyle = "#8a8a8a";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(sx, GROUND_Y + 20);
-      ctx.lineTo(sx, GROUND_Y - 60);
-      ctx.stroke();
+      const x = cp.position.x,
+        y = cp.position.y;
+
       ctx.fillStyle = visited ? "#2f8a55" : isCurrent ? "#ffb337" : "#555";
-      ctx.beginPath();
-      ctx.moveTo(sx, GROUND_Y - 60);
-      ctx.lineTo(sx + 26, GROUND_Y - 48);
-      ctx.lineTo(sx, GROUND_Y - 36);
-      ctx.closePath();
-      ctx.fill();
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = 3;
+      ctx.fillRect(x - 20, y - 10, 40, 34);
+      ctx.strokeRect(x - 20, y - 10, 40, 34);
+      ctx.fillRect(x - 26, y - 20, 52, 14);
+      ctx.strokeRect(x - 26, y - 20, 52, 14);
+
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 14px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(i + 1, x, y + 10);
+
       if (visited || isCurrent) {
+        ctx.strokeStyle = "#eee";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 20);
+        ctx.lineTo(x, y - 56);
+        ctx.stroke();
+        ctx.fillStyle = visited ? "#2f8a55" : "#ffb337";
+        ctx.beginPath();
+        ctx.moveTo(x, y - 56);
+        ctx.lineTo(x + 18, y - 49);
+        ctx.lineTo(x, y - 42);
+        ctx.closePath();
+        ctx.fill();
+
         ctx.font = "bold 11px monospace";
         ctx.fillStyle = "#fff";
-        ctx.textAlign = "center";
-        ctx.fillText(cp.name, sx, GROUND_Y + 40);
-        ctx.textAlign = "left";
+        ctx.fillText(cp.name, x, y + 50);
       }
+      ctx.textAlign = "left";
     });
   }
 
-  function drawSprite(
-    ctx2,
-    cx,
-    cy,
-    color,
-    wobble,
-    scale = 1,
-    running = false,
-    jumping = false,
-  ) {
+  function updateEnemies() {
+    enemies.forEach((e) => {
+      if (e.defeated || e.after > currentIndex) return;
+      e.x += e.dir * 0.8;
+      if (e.x > e.spawn.x + e.range) e.dir = -1;
+      if (e.x < e.spawn.x - e.range) e.dir = 1;
+    });
+  }
+
+  function drawEnemySprite(ctx2, e, cx, cy, scale, wobble) {
     ctx2.save();
     ctx2.translate(cx, cy + Math.sin(wobble) * 3);
     ctx2.scale(scale, scale);
-
-    const legSwing = running ? Math.sin(wobble * 3) * 8 : 0;
-    const armSwing = running
-      ? Math.sin(wobble * 3 + Math.PI) * 8
-      : jumping
-        ? -14
-        : 0;
-
-    // legs
-    ctx2.strokeStyle = "#000";
-    ctx2.lineWidth = 4;
-    ctx2.lineCap = "round";
     ctx2.beginPath();
-    ctx2.moveTo(-4, 10);
-    ctx2.lineTo(-4 + legSwing * 0.3, 22);
-    ctx2.moveTo(4, 10);
-    ctx2.lineTo(4 - legSwing * 0.3, 22);
-    ctx2.stroke();
-    ctx2.strokeStyle = color;
-    ctx2.lineWidth = 3;
-    ctx2.beginPath();
-    ctx2.moveTo(-4, 10);
-    ctx2.lineTo(-4 + legSwing * 0.3, 22);
-    ctx2.moveTo(4, 10);
-    ctx2.lineTo(4 - legSwing * 0.3, 22);
-    ctx2.stroke();
-
-    // arms (behind body)
-    ctx2.strokeStyle = color;
-    ctx2.lineWidth = 3;
-    ctx2.beginPath();
-    ctx2.moveTo(-8, 2);
-    ctx2.lineTo(-12, 2 + armSwing * 0.5);
-    ctx2.moveTo(8, 2);
-    ctx2.lineTo(12, 2 - armSwing * 0.5);
-    ctx2.stroke();
-
-    // body
-    ctx2.beginPath();
-    ctx2.arc(0, 0, 15, 0, Math.PI * 2);
-    ctx2.fillStyle = color;
+    ctx2.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx2.fillStyle = e.color;
     ctx2.fill();
-    ctx2.lineWidth = 2.5;
+    ctx2.lineWidth = 3;
     ctx2.strokeStyle = "#000";
     ctx2.stroke();
-
-    // eyes
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + wobble * 0.3;
+      ctx2.beginPath();
+      ctx2.arc(Math.cos(a) * 18, Math.sin(a) * 18, 4, 0, Math.PI * 2);
+      ctx2.fillStyle = "rgba(0,0,0,0.25)";
+      ctx2.fill();
+    }
     ctx2.fillStyle = "#fff";
     ctx2.beginPath();
-    ctx2.arc(-5, -3, 4, 0, Math.PI * 2);
-    ctx2.arc(5, -3, 4, 0, Math.PI * 2);
+    ctx2.arc(-7, -4, 5, 0, Math.PI * 2);
+    ctx2.fill();
+    ctx2.beginPath();
+    ctx2.arc(7, -4, 5, 0, Math.PI * 2);
     ctx2.fill();
     ctx2.fillStyle = "#000";
     ctx2.beginPath();
-    ctx2.arc(-4, -2, 1.8, 0, Math.PI * 2);
-    ctx2.arc(6, -2, 1.8, 0, Math.PI * 2);
+    ctx2.arc(-6, -3, 2.4, 0, Math.PI * 2);
     ctx2.fill();
-
+    ctx2.beginPath();
+    ctx2.arc(8, -3, 2.4, 0, Math.PI * 2);
+    ctx2.fill();
+    ctx2.strokeStyle = "#000";
+    ctx2.lineWidth = 2;
+    ctx2.beginPath();
+    ctx2.moveTo(-8, 8);
+    ctx2.lineTo(8, 8);
+    ctx2.stroke();
     ctx2.restore();
   }
 
   function drawEnemies() {
     enemies.forEach((e) => {
-      if (e.defeated || (e.after ?? 0) > currentIndex) return;
-      const sx = e.x - camX;
-      if (sx < -60 || sx > canvas.width + 60) return;
-      drawSprite(ctx, sx, e.y - 16, e.color, frame * 0.08, 1, true, false);
+      if (e.defeated || e.after > currentIndex) return;
+      drawEnemySprite(ctx, e, e.x, e.y, 0.7, frame * 0.08);
       ctx.font = "bold 10px monospace";
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      ctx.fillText(e.name, sx, e.y - 46);
+      ctx.fillText(e.name, e.x, e.y - 28);
       ctx.textAlign = "left";
     });
   }
 
-  function drawPlayer() {
-    const sx = player.x - camX;
-    ctx.save();
-    ctx.translate(sx, 0);
-    ctx.scale(player.facing, 1);
-    if (player.flash > 0) {
-      ctx.globalCompositeOperation = "lighter";
+  function checkEnemyCollision() {
+    for (const e of enemies) {
+      if (e.defeated || e.after > currentIndex) continue;
+      if (distanceTo({ x: e.x, y: e.y }) < 24) {
+        startBattle(e);
+        return true;
+      }
     }
-    ctx.translate(-sx, 0);
-    drawSprite(
-      ctx,
-      sx,
-      player.y - 16,
-      player.flash > 0 ? "#ff8080" : "#2a4fbf",
-      frame * 0.08,
-      1,
-      player.moving && player.onGround,
-      !player.onGround,
-    );
-    ctx.restore();
+    return false;
+  }
+
+  function drawPlayer() {
+    const bob = player.moving ? Math.sin(frame * 0.3) * 2 : 0;
+    const legPhase = Math.sin(frame * 0.35) > 0;
+    const px = Math.round(player.x),
+      py = Math.round(player.y + bob);
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(player.facing, 1);
+
+    ctx.fillStyle = "#2a4fbf";
+    if (player.moving) {
+      ctx.fillRect(legPhase ? -7 : -3, 9, 4, 8);
+      ctx.fillRect(legPhase ? 3 : 7, 9, 4, 8);
+    } else {
+      ctx.fillRect(-6, 9, 4, 7);
+      ctx.fillRect(2, 9, 4, 7);
+    }
+
     ctx.beginPath();
-    ctx.ellipse(sx, GROUND_Y + 14, 12, 3, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fillStyle = "#e23b3b";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#7a1414";
+    ctx.stroke();
+
+    ctx.fillStyle = "#2a4fbf";
+    ctx.beginPath();
+    ctx.arc(0, 3, 9, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(4, -3, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.arc(5, -3, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#d8342a";
+    ctx.beginPath();
+    ctx.arc(0, -9, 7, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(-1, -16, 10, 4);
+
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.ellipse(px, py + 15, 10, 3, 0, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.fill();
-    if (player.flash > 0) player.flash--;
   }
 
   function render() {
-    ctx.save();
-    if (shake > 0) {
-      ctx.translate(
-        (Math.random() - 0.5) * shake,
-        (Math.random() - 0.5) * shake,
-      );
-      shake *= 0.85;
-      if (shake < 0.5) shake = 0;
-    }
     drawBackground();
-    drawFlags();
-    drawPlatforms();
-    drawParticles();
+    drawCheckpoints();
     drawEnemies();
     drawPlayer();
-    ctx.restore();
+    updateCompass();
   }
 
   function renderHpHud() {
@@ -597,13 +501,35 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     }
   }
 
+  function updateCompass() {
+    const cp = currentCheckpoint();
+    const compass = $("compass");
+    if (!cp) {
+      compass.style.opacity = 0;
+      return;
+    }
+    compass.style.opacity = 1;
+    const dx = cp.position.x - player.x;
+    const dy = cp.position.y - player.y;
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    $("arrowSvg").style.transform = `rotate(${angle}deg)`;
+  }
+
   const keys = {};
   function onKeyDown(e) {
-    const k = e.key;
     if (
-      ["ArrowLeft", "ArrowRight", "ArrowUp", " ", "a", "d", "w"].includes(k)
+      [
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "w",
+        "a",
+        "s",
+        "d",
+      ].includes(e.key)
     ) {
-      keys[k] = true;
+      keys[e.key] = true;
       e.preventDefault();
     }
   }
@@ -613,85 +539,62 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
 
-  function checkEnemyCollision() {
-    for (const e of enemies) {
-      if (e.defeated || (e.after ?? 0) > currentIndex) continue;
-      if (Math.abs(player.x - e.x) < 26) {
-        startBattle(e);
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function platformUnder(x) {
-    return platforms.find((p) => x >= p.x && x <= p.x + p.w);
-  }
-
+  const SPEED = 4;
   function movePlayer() {
     if (inDialogue || inBattle) {
       player.moving = false;
       return;
     }
-    let dx = 0;
+    let dx = 0,
+      dy = 0;
+    if (keys["ArrowUp"] || keys["w"]) dy -= 1;
+    if (keys["ArrowDown"] || keys["s"]) dy += 1;
     if (keys["ArrowLeft"] || keys["a"]) dx -= 1;
     if (keys["ArrowRight"] || keys["d"]) dx += 1;
-    player.moving = dx !== 0;
+
+    player.moving = dx !== 0 || dy !== 0;
     if (dx !== 0) player.facing = dx > 0 ? 1 : -1;
-    player.x += dx * SPEED;
-    player.x = Math.max(20, Math.min(WORLD_WIDTH - 20, player.x));
 
-    const wasOnGround = player.onGround;
-    if ((keys["ArrowUp"] || keys[" "] || keys["w"]) && player.onGround) {
-      player.vy = JUMP_V;
-      player.onGround = false;
-      spawnParticles(player.x, player.y, "#8a8a8a", 5);
+    if (player.moving) {
+      const len = Math.hypot(dx, dy);
+      player.x += (dx / len) * SPEED;
+      player.y += (dy / len) * SPEED;
+      player.x = Math.max(14, Math.min(canvas.width - 14, player.x));
+      player.y = Math.max(14, Math.min(canvas.height - 14, player.y));
+
+      if (checkEnemyCollision()) return;
+      const cp = currentCheckpoint();
+      if (cp && distanceTo(cp.position) < 28) openDialogue(cp);
     }
-
-    player.vy += GRAVITY;
-    player.y += player.vy;
-
-    // land on ground or on a platform, whichever is higher (smaller y)
-    const plat = platformUnder(player.x);
-    let floorY = GROUND_Y;
-    if (plat && player.y >= plat.y && player.y - player.vy <= plat.y + 2) {
-      floorY = plat.y;
-    }
-    if (player.y >= floorY) {
-      if (!wasOnGround && player.vy > 4) {
-        spawnParticles(player.x, floorY, "#8a8a8a", 6);
-        shake = Math.min(6, player.vy * 0.4);
-      }
-      player.y = floorY;
-      player.vy = 0;
-      player.onGround = true;
-    } else {
-      player.onGround = false;
-    }
-
-    // camera follows player, clamped to world bounds
-    camX = Math.max(
-      0,
-      Math.min(WORLD_WIDTH - canvas.width, player.x - canvas.width * 0.35),
-    );
-    updateParticles();
-
-    if (checkEnemyCollision()) return;
-    const cp = currentCheckpoint();
-    if (cp && Math.abs(player.x - cp.wx) < 30 && player.onGround)
-      openDialogue(cp);
   }
 
   function gameLoop() {
     if (!running) return;
     frame++;
     movePlayer();
+    if (!inBattle) updateEnemies();
     render();
     rafId = requestAnimationFrame(gameLoop);
   }
 
+  function onCanvasClick(e) {
+    if (inDialogue) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    if (x > player.x) player.facing = 1;
+    else if (x < player.x) player.facing = -1;
+    player.x = x;
+    player.y = y;
+    const cp = currentCheckpoint();
+    if (cp && distanceTo(cp.position) < 28) openDialogue(cp);
+  }
+  canvas.addEventListener("click", onCanvasClick);
+
   function openDialogue(cp) {
-    lastSafeX = cp.wx - 40;
+    lastSafeCheckpointPos = { x: cp.position.x, y: cp.position.y - 40 };
     inDialogue = true;
     $("dlgSpeaker").textContent = cp.speaker;
     $("dlgBody").textContent = cp.arrivalDialogue;
@@ -735,6 +638,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
       quiz.classList.add("hidden");
       continueBtn.classList.remove("hidden");
     }
+
     $("dialogue").style.transform = "translateY(0)";
   }
 
@@ -742,14 +646,16 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     $("dialogue").style.transform = "translateY(140%)";
     $("quiz").classList.add("hidden");
     inDialogue = false;
+
     const cp = currentCheckpoint();
     if (cp.nextObjective) $("missionText").textContent = cp.nextObjective;
     currentIndex++;
     $("levelText").textContent =
-      "1-" + Math.min(currentIndex + 1, checkpoints.length);
-    if (currentIndex >= checkpoints.length) {
+      "1-" + Math.min(currentIndex + 1, gameData.checkpoints.length);
+
+    if (currentIndex >= gameData.checkpoints.length) {
       $("winText").textContent =
-        `You reached the end of the level. Final score: ${score}.`;
+        `You completed all ${gameData.checkpoints.length} checkpoints. Final score: ${score}.`;
       $("winScreen").classList.remove("hidden");
       $("winScreen").classList.add("flex");
       $("missionText").textContent = "Complete!";
@@ -776,7 +682,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     const ectx = ec.getContext("2d");
     ectx.clearRect(0, 0, ec.width, ec.height);
     enemyWobble += 0.06;
-    drawSprite(ectx, 110, 100, activeEnemy.color, enemyWobble, 2.4);
+    drawEnemySprite(ectx, activeEnemy, 110, 90, 2.2, enemyWobble);
   }
 
   function shuffledIndices(n) {
@@ -787,6 +693,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     }
     return arr;
   }
+
   let battleQueue = [];
 
   function startBattle(e) {
@@ -804,6 +711,8 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   }
 
   function askBattleQuestion() {
+    // Once every question has been used, reshuffle for a fresh pass
+    // instead of cycling back to question #1 in the same order.
     if (battleQIndex >= battleQueue.length) {
       battleQueue = shuffledIndices(activeEnemy.questions.length);
       battleQIndex = 0;
@@ -832,7 +741,6 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
             .querySelectorAll("button")
             [q.answer].classList.add("bg-green-700", "border-green-400");
           player.hp = Math.max(0, player.hp - 18);
-          player.flash = 20;
           $("battleFact").textContent = "✖ " + q.wrongFact;
         }
         $("scoreText").textContent = String(score).padStart(3, "0");
@@ -853,14 +761,20 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     }
     if (player.hp <= 0) {
       player.hp = player.maxHp;
-      player.x = lastSafeX;
-      endBattle("That took a toll — you regroup at full health.");
+      player.x = lastSafeCheckpointPos.x;
+      player.y = lastSafeCheckpointPos.y;
+      endBattle("That took a toll — your cell regroups at full health.");
       return;
     }
     battleQIndex++;
     askBattleQuestion();
   }
   $("battleContinue").addEventListener("click", onBattleContinue);
+
+  function onWinNewGameClick() {
+    if (onWinNewGame) onWinNewGame();
+  }
+  $("winNewGameBtn").addEventListener("click", onWinNewGameClick);
 
   function endBattle(message) {
     $("battleFact").textContent = message;
@@ -875,11 +789,6 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     }, 2200);
   }
 
-  function onWinNewGameClick() {
-    if (onWinNewGame) onWinNewGame();
-  }
-  $("winNewGameBtn").addEventListener("click", onWinNewGameClick);
-
   // init
   renderHpHud();
   $("missionText").textContent = "Head toward the " + currentCheckpoint().name;
@@ -893,12 +802,14 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     battleRaf = requestAnimationFrame(battleStageLoop);
   })();
 
+  // cleanup on unmount
   return () => {
     running = false;
     cancelAnimationFrame(rafId);
     cancelAnimationFrame(battleRaf);
     document.removeEventListener("keydown", onKeyDown);
+    $("winNewGameBtn").removeEventListener("click", onWinNewGameClick);
     document.removeEventListener("keyup", onKeyUp);
-    $("winNewGameBtn")?.removeEventListener("click", onWinNewGameClick);
+    canvas.removeEventListener("click", onCanvasClick);
   };
 }

@@ -6,6 +6,7 @@ import Spinner from "./Spinner";
 import Game from "./game";
 import Platformer from "./platformer";
 import MemoryGame from "./MemoryGame";
+import NotesInput from "./NotesInput";
 
 const PLAY_MODES = [
   {
@@ -30,6 +31,7 @@ const PLAY_MODES = [
 
 export default function Lesson({ career }) {
   const [topic, setTopic] = useState("");
+  const [notes, setNotes] = useState("");
   const [lessonData, setLessonData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingNext, setLoadingNext] = useState(false);
@@ -50,7 +52,7 @@ export default function Lesson({ career }) {
     setLessonData(null);
     setSelectedAnswers({});
     setSubmitted(false);
-    const data = await generateLesson(career, t);
+    const data = await generateLesson(career, t, notes);
     setLessonData(data);
     setTopic(t);
     setLoading(false);
@@ -109,7 +111,12 @@ export default function Lesson({ career }) {
 
   if (showGame) {
     return (
-      <Game career={career} topic={topic} onClose={() => setShowGame(false)} />
+      <Game
+        career={career}
+        topic={topic}
+        notes={notes}
+        onClose={() => setShowGame(false)}
+      />
     );
   }
 
@@ -118,6 +125,7 @@ export default function Lesson({ career }) {
       <Platformer
         career={career}
         topic={topic}
+        notes={notes}
         onClose={() => setShowPlatformer(false)}
       />
     );
@@ -128,6 +136,7 @@ export default function Lesson({ career }) {
       <MemoryGame
         career={career}
         topic={topic}
+        notes={notes}
         onClose={() => setShowMemory(false)}
       />
     );
@@ -174,11 +183,16 @@ export default function Lesson({ career }) {
           </button>
         </div>
 
+        <div className="mb-8">
+          <NotesInput notes={notes} onChange={setNotes} />
+        </div>
+
         {/* Games move to the sidebar on large screens; shown inline below it on mobile */}
         {topic.trim() && (
           <div className="lg:hidden mb-8">
             <GamePanel
               topic={topic}
+              notes={notes}
               onPlay={(key) => {
                 if (key === "game") setShowGame(true);
                 if (key === "platformer") setShowPlatformer(true);
@@ -320,6 +334,7 @@ export default function Lesson({ career }) {
       <aside className="hidden lg:block sticky top-8">
         <GamePanel
           topic={topic}
+          notes={notes}
           onPlay={(key) => {
             if (key === "game") setShowGame(true);
             if (key === "platformer") setShowPlatformer(true);
@@ -331,8 +346,9 @@ export default function Lesson({ career }) {
   );
 }
 
-function GamePanel({ topic, onPlay }) {
+function GamePanel({ topic, notes, onPlay }) {
   const hasTopic = Boolean(topic.trim());
+  const hasNotes = Boolean(notes && notes.trim());
 
   return (
     <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-lg overflow-hidden">
@@ -344,9 +360,15 @@ function GamePanel({ topic, onPlay }) {
         <p className="font-mono text-[10px] tracking-widest text-muted dark:text-muted-dark uppercase mb-1">
           Generate a game
         </p>
-        <p className="font-display font-semibold text-ink dark:text-ink-dark mb-4 leading-snug">
+        <p className="font-display font-semibold text-ink dark:text-ink-dark mb-1 leading-snug">
           {hasTopic ? `"${topic.trim()}"` : "Enter a topic first"}
         </p>
+        {hasTopic && hasNotes && (
+          <p className="text-xs text-muted dark:text-muted-dark mb-4">
+            Built only from your uploaded notes.
+          </p>
+        )}
+        {hasTopic && !hasNotes && <div className="mb-4" />}
 
         {!hasTopic && (
           <p className="text-sm text-muted dark:text-muted-dark">

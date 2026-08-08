@@ -5,7 +5,7 @@ import Spinner from "./Spinner";
 // Simple, original-design memory/matching game: flip cards to pair a
 // term with its definition. Built from the same career/topic input as
 // the other games, hitting a separate /api/memory endpoint.
-export default function MemoryGame({ career, topic, onClose }) {
+export default function MemoryGame({ career, topic, notes = "", onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -26,7 +26,7 @@ export default function MemoryGame({ career, topic, onClose }) {
     setFlipped([]);
     setMatched([]);
     setMoves(0);
-    generateMemoryGame(career, topic).then((res) => {
+    generateMemoryGame(career, topic, notes).then((res) => {
       if (cancelled) return;
       if (!res || !res.pairs || res.pairs.length < 3) {
         setError("The AI didn't return enough pairs. Try generating again.");
@@ -49,7 +49,7 @@ export default function MemoryGame({ career, topic, onClose }) {
       cancelled = true;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [career, topic, retryKey]);
+  }, [career, topic, notes, retryKey]);
 
   function handleFlip(idx) {
     if (locked) return;

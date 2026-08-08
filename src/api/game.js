@@ -1,3 +1,5 @@
+import { getProvider } from "./provider";
+
 const BASE_URL = "http://127.0.0.1:8000";
 
 // Expected shape of the resolved data (consumed by src/components/game.jsx):
@@ -37,12 +39,12 @@ const BASE_URL = "http://127.0.0.1:8000";
 //   ],
 // }
 
-export async function generateGame(career, topic) {
+export async function generateGame(career, topic, notes = "") {
   try {
     const response = await fetch(`${BASE_URL}/api/game`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ career, topic }),
+      body: JSON.stringify({ career, topic, notes, provider: getProvider() }),
     });
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
     return await response.json();

@@ -1,8 +1,18 @@
+import json
+import os
+
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
-import json
+
+# python-dotenv is optional -- if it's not installed we just skip loading
+# .env and rely on real environment variables instead.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = FastAPI()
 
@@ -14,31 +24,145 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------- MODEL PROVIDERS ----------
+# Two providers are supported:
+#   "ollama" - your existing local/offline model (default, no key needed)
+#   "gemini" - Google AI Studio's Gemini API (needs GOOGLE_API_KEY)
+#
+# The key is NEVER hardcoded here or sent from the frontend. It's read
+# from the environment at request time, which is populated from a local
+# .env file (gitignored) or from real environment variables / GitHub
+# Actions secrets in CI. See .env.example for the expected variable name.
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "gemma4:e4b"
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{GEMINI_MODEL}:generateContent"
+)
+
+
+@app.get("/api/providers")
+def list_providers():
+    """Lets the frontend know which providers are actually usable right now,
+    so it can hide/disable the online option if no key is configured."""
+    return {
+        "ollama": {"available": True, "label": "Offline (Ollama)"},
+        "gemini": {
+            "available": bool(GOOGLE_API_KEY),
+            "label": "Online (Gemini)",
+        },
+    }
+
+
+def _clean_json_text(raw_content: str) -> str:
+    cleaned = raw_content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        cleaned = cleaned.replace("json", "", 1).strip()
+    return cleaned
+
+
+def _call_ollama(system: str, user_prompt: str) -> str:
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+    }
+    response = requests.post(OLLAMA_URL, json=payload, timeout=120)
+    response.raise_for_status()
+    result = response.json()
+    return result["message"]["content"]
+
+
+def _call_gemini(system: str, user_prompt: str) -> str:
+    if not GOOGLE_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="No Gemini API key configured on the server. Set "
+                   "GOOGLE_API_KEY in your .env file, or switch to the "
+                   "offline (Ollama) provider.",
+        )
+    payload = {
+        "system_instruction": {"parts": [{"text": system}]},
+        "contents": [{"parts": [{"text": user_prompt}]}],
+        "generationConfig": {"response_mime_type": "application/json"},
+    }
+    response = requests.post(
+        GEMINI_URL,
+        params={"key": GOOGLE_API_KEY},
+        json=payload,
+        timeout=120,
+    )
+    response.raise_for_status()
+    result = response.json()
+    try:
+        return result["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini returned an unexpected response shape.",
+        )
+
+
+def call_llm(system: str, user_prompt: str, provider: str = "ollama") -> str:
+    """Routes to the chosen provider and returns the raw text response."""
+    provider = (provider or "ollama").lower()
+    if provider == "gemini":
+        return _call_gemini(system, user_prompt)
+    if provider == "ollama":
+        return _call_ollama(system, user_prompt)
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unknown provider '{provider}'. Use 'ollama' or 'gemini'.",
+    )
+
+
+def call_llm_json(system: str, user_prompt: str, provider: str = "ollama") -> dict:
+    """Calls the model and parses its response as JSON, with the shared
+    error handling every endpoint below used to duplicate."""
+    try:
+        raw_content = call_llm(system, user_prompt, provider)
+        return json.loads(_clean_json_text(raw_content))
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=500, detail="Model did not return valid JSON. Try again."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+JSON_SYSTEM_PROMPT = (
+    "You are a precise JSON API. You only output valid JSON, never markdown, "
+    "never extra commentary."
+)
 
 
 # ---------- CHAT (Phase 1) ----------
 class ChatRequest(BaseModel):
     message: str
+    provider: str = "ollama"
 
 
 @app.post("/api/tutor")
 def chat_with_tutor(request: ChatRequest):
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a strict, step-by-step programming "
-             "teacher. Never give code answers directly. Explain concepts simply and "
-             "ask guiding questions."},
-            {"role": "user", "content": request.message}
-        ],
-        "stream": False
-    }
+    system = (
+        "You are a strict, step-by-step programming teacher. Never give code "
+        "answers directly. Explain concepts simply and ask guiding questions."
+    )
     try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        return {"response": result["message"]["content"]}
+        content = call_llm(system, request.message, request.provider)
+        return {"response": content}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -47,14 +171,40 @@ def chat_with_tutor(request: ChatRequest):
 class LessonRequest(BaseModel):
     career: str
     topic: str
+    notes: str = ""
+    provider: str = "ollama"
+
+
+def _notes_block(notes: str, limit: int = 6000) -> str:
+    """Trim uploaded notes to a safe prompt length."""
+    notes = (notes or "").strip()
+    if not notes:
+        return ""
+    if len(notes) > limit:
+        notes = notes[:limit] + "\n...[truncated]"
+    return notes
 
 
 @app.post("/api/lesson")
 def generate_lesson(request: LessonRequest):
+    notes = _notes_block(request.notes)
+    if notes:
+        source_instruction = f"""Base the lesson STRICTLY on the student's own notes below - do not
+introduce outside facts that aren't supported by these notes. Use the notes
+as your single source of truth, and organize/clarify them into a lesson.
+
+--- STUDENT'S NOTES ---
+{notes}
+--- END NOTES ---
+"""
+    else:
+        source_instruction = ""
+
     prompt = f"""You are an expert {request.career} instructor creating a study lesson.
 
 Topic: {request.topic}
 
+{source_instruction}
 Respond ONLY with valid JSON, no markdown formatting, no backticks, no extra text.
 Use this exact structure:
 {{
@@ -72,35 +222,14 @@ Use this exact structure:
 
 Generate exactly 5 quiz questions."""
 
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API. You only output "
-             "valid JSON, never markdown, never extra commentary."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
 
 
 # ---------- CURRICULUM PROGRESSION (Phase 7) ----------
 class NextTopicRequest(BaseModel):
     career: str
     previous_topics: list[str]
+    provider: str = "ollama"
 
 
 @app.post("/api/next-topic")
@@ -118,35 +247,14 @@ Respond ONLY with valid JSON, no markdown, no backticks, no extra text:
   "topic": "the next topic name, short and specific"
 }}"""
 
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API. You only output "
-             "valid JSON, never markdown, never extra commentary."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
 
 
 class QuizRequest(BaseModel):
     career: str
     topic: str
     lesson: str
+    provider: str = "ollama"
 
 
 @app.post("/api/quiz")
@@ -172,44 +280,34 @@ Respond ONLY with valid JSON, no markdown, no backticks, no extra text:
 
 Generate exactly 5 quiz questions."""
 
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API. You only output "
-             "valid JSON, never markdown, never extra commentary."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
 
 
-# ---------- ADD THIS BLOCK TO main.py ----------
-# Paste this near your other routes (e.g. right after /api/quiz).
-# It reuses the exact same OLLAMA_URL / payload / JSON-cleaning pattern
-# as your other endpoints, so no new imports are needed.
-
-
+# ---------- GAME MODE ----------
 class GameRequest(BaseModel):
     career: str
     topic: str
+    notes: str = ""
+    provider: str = "ollama"
 
 
 @app.post("/api/game")
 def generate_game(request: GameRequest):
+    notes = _notes_block(request.notes)
+    if notes:
+        source_instruction = f"""Every checkpoint dialogue, quiz question, and answer MUST be drawn
+directly from the student's own notes below - do not invent facts that
+aren't supported by these notes. If the notes don't cover 4 distinct ideas,
+it's fine to teach the same idea from two angles rather than making
+something up.
+
+--- STUDENT'S NOTES ---
+{notes}
+--- END NOTES ---
+"""
+    else:
+        source_instruction = ""
+
     prompt = f"""You are designing a short 2D top-down educational adventure game level
 for a {request.career} student learning about "{request.topic}".
 
@@ -221,6 +319,7 @@ Create 4 checkpoints, each teaching one key idea about "{request.topic}" in sequ
 Create 2 enemies themed as villains related to "{request.topic}" (e.g. misconceptions
 or complications), each with 3 quiz questions.
 
+{source_instruction}
 Respond ONLY with valid JSON, no markdown, no backticks, no extra text.
 Use this exact structure:
 {{
@@ -269,44 +368,34 @@ Rules:
 - The last checkpoint's "nextObjective" must be null.
 - All content must be accurate and specific to "{request.topic}" for a {request.career} student."""
 
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API. You only output "
-             "valid JSON, never markdown, never extra commentary."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        data = json.loads(cleaned)
-        if not data.get("checkpoints"):
-            raise HTTPException(status_code=500, detail="Model returned no checkpoints. Try again.")
-        return data
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # ---------- ADD THIS BLOCK TO main.py ----------
-# Paste near your other routes (e.g. right after /api/game).
+    data = call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
+    if not data.get("checkpoints"):
+        raise HTTPException(status_code=500, detail="Model returned no checkpoints. Try again.")
+    return data
 
 
+# ---------- MEMORY MATCH ----------
 class MemoryRequest(BaseModel):
     career: str
     topic: str
+    notes: str = ""
+    provider: str = "ollama"
 
 
 @app.post("/api/memory")
 def generate_memory(request: MemoryRequest):
+    notes = _notes_block(request.notes)
+    if notes:
+        source_instruction = f"""Draw every term and definition directly from the student's own notes
+below - do not invent terms that aren't supported by these notes.
+
+--- STUDENT'S NOTES ---
+{notes}
+--- END NOTES ---
+"""
+    else:
+        source_instruction = ""
+
     prompt = f"""You are creating a memory-matching study game for a {request.career}
 student learning about "{request.topic}".
 
@@ -315,6 +404,7 @@ Each "term" should be short (1-4 words, a name or key phrase). Each
 "definition" should be a short, clear explanation (under 15 words) that
 a student could match back to the term.
 
+{source_instruction}
 Respond ONLY with valid JSON, no markdown, no backticks, no extra text:
 {{
   "pairs": [
@@ -324,32 +414,11 @@ Respond ONLY with valid JSON, no markdown, no backticks, no extra text:
 
 Generate exactly 8 pairs. No two terms or definitions should be confusingly similar."""
 
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API. You only output "
-             "valid JSON, never markdown, never extra commentary."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        data = json.loads(cleaned)
-        if not data.get("pairs") or len(data["pairs"]) < 3:
-            raise HTTPException(status_code=500, detail="Model returned too few pairs. Try again.")
-        return data
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    data = call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
+    if not data.get("pairs") or len(data["pairs"]) < 3:
+        raise HTTPException(status_code=500, detail="Model returned too few pairs. Try again.")
+    return data
+
 
 # ---------- CODER MODE (Phase 8, Step 3) ----------
 class CodeRequest(BaseModel):
@@ -358,6 +427,7 @@ class CodeRequest(BaseModel):
     prompt: str = ""   # used for "generate": what to build
     code: str = ""      # used for "review" and "fix": the student's current code
     error: str = ""     # used for "fix": the error message/traceback, if any
+    provider: str = "ollama"
 
 
 def _build_code_prompt(request: CodeRequest) -> str:
@@ -418,28 +488,9 @@ Respond ONLY with valid JSON, no markdown, no backticks, no extra text:
 @app.post("/api/code")
 def code_assistant(request: CodeRequest):
     prompt = _build_code_prompt(request)
-
-    payload = {
-        "model": "gemma4:e4b",
-        "messages": [
-            {"role": "system", "content": "You are a precise JSON API for a coding "
-             "assistant. You only output valid JSON, never markdown, never extra "
-             "commentary outside the JSON structure."},
-            {"role": "user", "content": prompt}
-        ],
-        "stream": False
-    }
-    try:
-        response = requests.post(OLLAMA_URL, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        raw_content = result["message"]["content"]
-        cleaned = raw_content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Model did not return valid JSON. Try again.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    system = (
+        "You are a precise JSON API for a coding assistant. You only output "
+        "valid JSON, never markdown, never extra commentary outside the JSON "
+        "structure."
+    )
+    return call_llm_json(system, prompt, request.provider)

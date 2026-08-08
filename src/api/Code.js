@@ -1,3 +1,5 @@
+import { getProvider } from "./provider";
+
 const CODE_API_URL = "http://127.0.0.1:8000/api/code";
 
 async function callCode(payload) {
@@ -7,7 +9,7 @@ async function callCode(payload) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, provider: getProvider() }),
     });
 
     if (!response.ok) {

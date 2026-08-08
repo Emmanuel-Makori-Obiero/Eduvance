@@ -5,6 +5,11 @@ import Chat from "./components/chat";
 import History from "./components/History";
 import Coder from "./components/Coder";
 import { getTheme, setTheme } from "./api/theme";
+import {
+  getProvider,
+  setProvider,
+  getAvailableProviders,
+} from "./api/provider";
 
 const TABS = [
   { key: "lesson", label: "Lesson" },
@@ -18,6 +23,22 @@ function App() {
   const [mode, setMode] = useState(null); // "academic" | "coder" | null
   const [activeTab, setActiveTab] = useState("lesson");
   const [dark, setDark] = useState(getTheme() === "dark");
+  const [provider, setProviderState] = useState(getProvider());
+  const [providers, setProviders] = useState({
+    ollama: { available: true, label: "Offline (Ollama)" },
+    gemini: { available: false, label: "Online (Gemini)" },
+  });
+
+  useEffect(() => {
+    getAvailableProviders().then(setProviders);
+  }, []);
+
+  function toggleProvider() {
+    const geminiReady = providers.gemini?.available;
+    const next = provider === "ollama" && geminiReady ? "gemini" : "ollama";
+    setProvider(next);
+    setProviderState(next);
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -54,12 +75,26 @@ function App() {
               </>
             )}
           </div>
-          <button
-            onClick={() => setDark(!dark)}
-            className="font-mono text-[11px] tracking-wide text-muted dark:text-muted-dark border border-line dark:border-line-dark rounded px-2 py-1 hover:text-ink dark:hover:text-ink-dark hover:border-ink dark:hover:border-ink-dark transition-colors"
-          >
-            {dark ? "LIGHT" : "DARK"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleProvider}
+              disabled={!providers.gemini?.available}
+              title={
+                providers.gemini?.available
+                  ? "Switch between your offline model and Gemini"
+                  : "Set GOOGLE_API_KEY in the backend's .env to enable Gemini"
+              }
+              className="font-mono text-[11px] tracking-wide text-muted dark:text-muted-dark border border-line dark:border-line-dark rounded px-2 py-1 hover:text-ink dark:hover:text-ink-dark hover:border-ink dark:hover:border-ink-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {provider === "gemini" ? "ONLINE · GEMINI" : "OFFLINE · OLLAMA"}
+            </button>
+            <button
+              onClick={() => setDark(!dark)}
+              className="font-mono text-[11px] tracking-wide text-muted dark:text-muted-dark border border-line dark:border-line-dark rounded px-2 py-1 hover:text-ink dark:hover:text-ink-dark hover:border-ink dark:hover:border-ink-dark transition-colors"
+            >
+              {dark ? "LIGHT" : "DARK"}
+            </button>
+          </div>
         </header>
 
         <main className="pb-24">
