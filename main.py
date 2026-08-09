@@ -2,8 +2,9 @@ import json
 import os
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # python-dotenv is optional -- if it's not installed we just skip loading
@@ -23,6 +24,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Defense in depth: the frontend already caps how much notes text it will
+# ever send, but reject an oversized request body here too, before it's
+# fully read into memory. Without this, a very large body on a low-memory
+# host (e.g. Render's free tier) can crash the process mid-request, which
+# shows up client-side as a confusing "502 Bad Gateway" instead of a clear
+# error. 1MB is generous -- every prompt in this app only ever uses the
+# first 6000 characters of notes.
+MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": "That request is too large. Try uploading a "
+                          "shorter file or pasting a shorter excerpt of "
+                          "your notes."
+            },
+        )
+    return await call_next(request)
 
 # ---------- MODEL PROVIDERS ----------
 # Three provider modes are supported:
@@ -184,24 +209,35 @@ def call_llm(system: str, user_prompt: str, provider: str = "auto") -> str:
 
 def call_llm_json(system: str, user_prompt: str, provider: str = "auto") -> dict:
     """Calls the model and parses its response as JSON, with the shared
-    error handling every endpoint below used to duplicate."""
-    try:
-        raw_content = call_llm(system, user_prompt, provider)
-        return json.loads(_clean_json_text(raw_content))
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=500, detail="Model did not return valid JSON. Try again."
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        # Deliberately not including str(e) here -- some exceptions (e.g.
-        # from the requests library) embed the full request URL, which can
-        # contain the Gemini API key as a query param. Never surface that.
-        raise HTTPException(
-            status_code=500,
-            detail="Something went wrong generating a response. Try again.",
-        )
+    error handling every endpoint below used to duplicate.
+
+    LLMs occasionally return malformed JSON on a single attempt (more
+    common with smaller local Ollama models than Gemini). Retry once
+    before giving up, so a one-off bad generation doesn't force the
+    student to manually hit "try again" themselves.
+    """
+    last_error = None
+    for attempt in range(2):
+        try:
+            raw_content = call_llm(system, user_prompt, provider)
+            return json.loads(_clean_json_text(raw_content))
+        except json.JSONDecodeError as e:
+            last_error = e
+            continue
+        except HTTPException:
+            raise
+        except Exception:
+            # Deliberately not including str(e) here -- some exceptions
+            # (e.g. from the requests library) embed the full request URL,
+            # which can contain the Gemini API key as a query param. Never
+            # surface that.
+            raise HTTPException(
+                status_code=500,
+                detail="Something went wrong generating a response. Try again.",
+            )
+    raise HTTPException(
+        status_code=500, detail="Model did not return valid JSON. Try again."
+    )
 
 
 JSON_SYSTEM_PROMPT = (

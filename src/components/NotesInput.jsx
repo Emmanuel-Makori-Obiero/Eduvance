@@ -68,12 +68,41 @@ export default function NotesInput({ notes, onChange }) {
   const fileInputRef = useRef(null);
 
   const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/bmp"];
-  const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg", ".webm", ".aac", ".flac"];
+  const AUDIO_EXTENSIONS = [
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".ogg",
+    ".webm",
+    ".aac",
+    ".flac",
+  ];
+
+  // The backend only ever uses the first ~6000 characters of notes in its
+  // prompts anyway, but without a client-side cap, extracting text from a
+  // large file (e.g. a big PDF or long audio recording) can produce
+  // hundreds of KB to several MB of text. Sending all of that in the
+  // request body can crash a low-memory backend instance (e.g. Render's
+  // free tier) before it ever gets to truncate it server-side — which
+  // shows up as a confusing 502 / "AI didn't return a playable level"
+  // error. Cap it here, generously, well before it becomes a problem.
+  const MAX_NOTES_CHARS = 20000;
 
   function appendNotes(text) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onChange(notes.trim() ? `${notes.trim()}\n\n${trimmed}` : trimmed);
+    const combined = notes.trim() ? `${notes.trim()}\n\n${trimmed}` : trimmed;
+    if (combined.length > MAX_NOTES_CHARS) {
+      onChange(
+        combined.slice(0, MAX_NOTES_CHARS) +
+          "\n...[trimmed - only the first part of this is used]",
+      );
+      setFileError(
+        "That file added a lot of text, so it's been trimmed to keep things fast and reliable. The lesson/game will be based on the trimmed version.",
+      );
+    } else {
+      onChange(combined);
+    }
   }
 
   async function handlePdf(file) {
@@ -286,7 +315,11 @@ export default function NotesInput({ notes, onChange }) {
     if (lower.endsWith(".docx")) return handleDocx(file);
     if (lower.endsWith(".pptx")) return handlePptx(file);
 
-    if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    if (
+      lower.endsWith(".txt") ||
+      lower.endsWith(".md") ||
+      lower.endsWith(".markdown")
+    ) {
       const reader = new FileReader();
       reader.onload = (e) => {
         appendNotes(String(e.target.result || ""));
@@ -394,9 +427,7 @@ export default function NotesInput({ notes, onChange }) {
         )}
       </div>
 
-      {fileError && (
-        <p className="text-xs text-incorrect mt-2">{fileError}</p>
-      )}
+      {fileError && <p className="text-xs text-incorrect mt-2">{fileError}</p>}
     </div>
   );
 }
