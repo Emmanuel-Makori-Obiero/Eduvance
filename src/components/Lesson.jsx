@@ -113,7 +113,7 @@ export default function Lesson({ career }) {
     return (
       <Game
         career={career}
-        topic={topic}
+        topic={topic.trim() || "the topics covered in your notes"}
         notes={notes}
         onClose={() => setShowGame(false)}
       />
@@ -124,7 +124,7 @@ export default function Lesson({ career }) {
     return (
       <Platformer
         career={career}
-        topic={topic}
+        topic={topic.trim() || "the topics covered in your notes"}
         notes={notes}
         onClose={() => setShowPlatformer(false)}
       />
@@ -135,7 +135,7 @@ export default function Lesson({ career }) {
     return (
       <MemoryGame
         career={career}
-        topic={topic}
+        topic={topic.trim() || "the topics covered in your notes"}
         notes={notes}
         onClose={() => setShowMemory(false)}
       />
@@ -188,7 +188,7 @@ export default function Lesson({ career }) {
         </div>
 
         {/* Games move to the sidebar on large screens; shown inline below it on mobile */}
-        {topic.trim() && (
+        {(topic.trim() || notes.trim()) && (
           <div className="lg:hidden mb-8">
             <GamePanel
               topic={topic}
@@ -349,6 +349,12 @@ export default function Lesson({ career }) {
 function GamePanel({ topic, notes, onPlay }) {
   const hasTopic = Boolean(topic.trim());
   const hasNotes = Boolean(notes && notes.trim());
+  const canPlay = hasTopic || hasNotes;
+  const displayTitle = hasTopic
+    ? `"${topic.trim()}"`
+    : hasNotes
+      ? "Your uploaded notes"
+      : "Enter a topic or upload notes";
 
   return (
     <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-lg overflow-hidden">
@@ -361,23 +367,28 @@ function GamePanel({ topic, notes, onPlay }) {
           Generate a game
         </p>
         <p className="font-display font-semibold text-ink dark:text-ink-dark mb-1 leading-snug">
-          {hasTopic ? `"${topic.trim()}"` : "Enter a topic first"}
+          {displayTitle}
         </p>
         {hasTopic && hasNotes && (
           <p className="text-xs text-muted dark:text-muted-dark mb-4">
             Built only from your uploaded notes.
           </p>
         )}
+        {!hasTopic && hasNotes && (
+          <p className="text-xs text-muted dark:text-muted-dark mb-4">
+            No topic typed — the game will be built entirely from your notes.
+          </p>
+        )}
         {hasTopic && !hasNotes && <div className="mb-4" />}
 
-        {!hasTopic && (
+        {!canPlay && (
           <p className="text-sm text-muted dark:text-muted-dark">
-            Type a topic on the left and a game gets built from it — no separate
-            setup needed.
+            Type a topic, or upload/paste your notes, on the left — a game gets
+            built from either one, no separate setup needed.
           </p>
         )}
 
-        {hasTopic && (
+        {canPlay && (
           <div className="flex flex-col gap-2">
             {PLAY_MODES.map((m) => (
               <button
