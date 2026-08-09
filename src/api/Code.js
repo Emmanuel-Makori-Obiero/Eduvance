@@ -1,6 +1,7 @@
 import { getProvider } from "./provider";
 
-const CODE_API_URL = "http://127.0.0.1:8000/api/code";
+import { BASE_URL } from "./config";
+const CODE_API_URL = `${BASE_URL}/api/code`;
 
 async function callCode(payload) {
   try {

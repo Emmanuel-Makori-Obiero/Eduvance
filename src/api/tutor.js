@@ -1,7 +1,8 @@
 // src/api/tutor.js
 import { getProvider } from "./provider";
 
-const API_URL = "http://127.0.0.1:8000/api/tutor";
+import { BASE_URL } from "./config";
+const API_URL = `${BASE_URL}/api/tutor`;
 
 export async function askTutor(message) {
   try {

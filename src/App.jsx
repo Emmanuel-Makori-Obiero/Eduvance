@@ -24,13 +24,18 @@ function App() {
   const [activeTab, setActiveTab] = useState("lesson");
   const [dark, setDark] = useState(getTheme() === "dark");
   const [provider, setProviderState] = useState(getProvider());
+  const [checkingProviders, setCheckingProviders] = useState(true);
   const [providers, setProviders] = useState({
     ollama: { available: true, label: "Offline (Ollama)" },
     gemini: { available: false, label: "Online (Gemini)" },
   });
 
   useEffect(() => {
-    getAvailableProviders().then(setProviders);
+    setCheckingProviders(true);
+    getAvailableProviders().then((result) => {
+      setProviders(result);
+      setCheckingProviders(false);
+    });
   }, []);
 
   function toggleProvider() {
@@ -78,15 +83,21 @@ function App() {
           <div className="flex items-center gap-2">
             <button
               onClick={toggleProvider}
-              disabled={!providers.gemini?.available}
+              disabled={checkingProviders || !providers.gemini?.available}
               title={
-                providers.gemini?.available
-                  ? "Switch between your offline model and Gemini"
-                  : "Set GOOGLE_API_KEY in the backend's .env to enable Gemini"
+                checkingProviders
+                  ? "Checking backend status — this can take up to a minute if the server was asleep"
+                  : providers.gemini?.available
+                    ? "Switch between your offline model and Gemini"
+                    : "Set GOOGLE_API_KEY in the backend's .env to enable Gemini"
               }
               className="font-mono text-[11px] tracking-wide text-muted dark:text-muted-dark border border-line dark:border-line-dark rounded px-2 py-1 hover:text-ink dark:hover:text-ink-dark hover:border-ink dark:hover:border-ink-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {provider === "gemini" ? "ONLINE · GEMINI" : "OFFLINE · OLLAMA"}
+              {checkingProviders
+                ? "CHECKING…"
+                : provider === "gemini"
+                  ? "ONLINE · GEMINI"
+                  : "OFFLINE · OLLAMA"}
             </button>
             <button
               onClick={() => setDark(!dark)}

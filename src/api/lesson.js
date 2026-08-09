@@ -1,6 +1,6 @@
 import { getProvider } from "./provider";
 
-const BASE_URL = "http://127.0.0.1:8000";
+import { BASE_URL } from "./config";
 
 export async function generateLesson(career, topic, notes = "") {
   try {

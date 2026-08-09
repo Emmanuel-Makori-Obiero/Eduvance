@@ -1,6 +1,6 @@
 import { getProvider } from "./provider";
 
-const BASE_URL = "http://127.0.0.1:8000";
+import { BASE_URL } from "./config";
 
 // Expected shape of the resolved data (consumed by src/components/StoryGame.jsx):
 //
