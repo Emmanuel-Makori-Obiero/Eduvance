@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { generateStory } from "../api/Story";
 import Spinner from "./Spinner";
+import storyGoodImg from "../assets/story-good.webp";
+import storyMixedImg from "../assets/story-mixed.webp";
+import storyPoorImg from "../assets/story-poor.webp";
+
+const OUTCOME_IMAGE = {
+  good: storyGoodImg,
+  mixed: storyMixedImg,
+  poor: storyPoorImg,
+};
 
 // A branching "choose your path" scenario: the student is dropped into a
 // realistic situation about the topic, makes a decision, faces a
@@ -133,11 +142,18 @@ export default function StoryGame({ career, topic, notes = "", onClose }) {
             }`}
           >
             {isEnding && (
-              <span
-                className={`inline-block font-mono text-[10px] tracking-widest uppercase rounded px-2 py-1 mb-3 ${outcomeStyle.bg} ${outcomeStyle.text}`}
-              >
-                {outcomeStyle.label}
-              </span>
+              <>
+                <img
+                  src={OUTCOME_IMAGE[node.outcome]}
+                  alt={outcomeStyle.label}
+                  className="w-full h-40 object-cover rounded-md mb-3"
+                />
+                <span
+                  className={`inline-block font-mono text-[10px] tracking-widest uppercase rounded px-2 py-1 mb-3 ${outcomeStyle.bg} ${outcomeStyle.text}`}
+                >
+                  {outcomeStyle.label}
+                </span>
+              </>
             )}
             <p className="whitespace-pre-line leading-relaxed text-ink dark:text-ink-dark">
               {node.text}

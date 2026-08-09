@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { generateNovel } from "../api/novel";
 import Spinner from "./Spinner";
+import novelFantasyImg from "../assets/novel-fantasy.webp";
+import novelScifiImg from "../assets/novel-scifi.webp";
+import novelMysteryImg from "../assets/novel-mystery.webp";
+import novelSliceOfLifeImg from "../assets/novel-sliceoflife.webp";
+import novelHistoricalImg from "../assets/novel-historical.webp";
 
 // A paginated short novel woven around the topic, with an occasional
 // "lesson" beat embedded at natural high points. Data comes from the
@@ -12,6 +17,14 @@ const GENRES = [
   "slice of life",
   "historical drama",
 ];
+
+const GENRE_IMAGE = {
+  "fantasy adventure": novelFantasyImg,
+  "sci-fi": novelScifiImg,
+  "mystery/thriller": novelMysteryImg,
+  "slice of life": novelSliceOfLifeImg,
+  "historical drama": novelHistoricalImg,
+};
 
 export default function NovelBook({ career, topic, notes = "", onClose }) {
   const [genre, setGenre] = useState(GENRES[0]);
@@ -113,6 +126,14 @@ export default function NovelBook({ career, topic, notes = "", onClose }) {
           <h2 className="font-display font-semibold text-xl text-ink dark:text-ink-dark mb-4">
             {novelData.title}
           </h2>
+
+          {GENRE_IMAGE[genre] && (
+            <img
+              src={GENRE_IMAGE[genre]}
+              alt={genre}
+              className="w-full h-40 object-cover rounded-md mb-3"
+            />
+          )}
 
           {page.chapterTitle && (
             <h3 className="font-display font-medium text-base text-ink dark:text-ink-dark mb-3">
