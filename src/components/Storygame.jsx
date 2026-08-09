@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { generateStory } from "../api/story";
+import { generateStory } from "../api/Story";
 import Spinner from "./Spinner";
 
 // A branching "choose your path" scenario: the student is dropped into a

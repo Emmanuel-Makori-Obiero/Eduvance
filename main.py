@@ -532,6 +532,85 @@ Rules:
     return data
 
 
+# ---------- NOVEL MODE (paginated storyteller with embedded lessons) ----------
+class NovelRequest(BaseModel):
+    career: str
+    topic: str
+    notes: str = ""
+    genre: str = "fantasy adventure"
+    provider: str = "auto"
+
+
+NOVEL_PAGE_COUNT = 10
+
+
+@app.post("/api/novel")
+def generate_novel(request: NovelRequest):
+    notes = _notes_block(request.notes)
+    if notes:
+        source_instruction = f"""Weave in real lessons drawn STRICTLY from the student's own notes below at
+a handful of key story beats - do not invent facts that aren't supported
+by these notes. The lessons should emerge naturally from what the
+characters experience, never feel like a lecture bolted onto the plot.
+
+--- STUDENT'S NOTES ---
+{notes}
+--- END NOTES ---
+"""
+    else:
+        source_instruction = f"""There are no notes provided, so draw the lessons from accurate, real
+knowledge about "{request.topic}" appropriate for a {request.career} student."""
+
+    genre = (request.genre or "fantasy adventure").strip()
+
+    prompt = f"""You are a masterful, professional storyteller writing a short original
+novel for a {request.career} student. Genre: "{genre}". The story should be
+built around "{request.topic}" the way a great novelist would - it should
+NOT feel like a textbook. Write it like a page-turner: a gripping hook
+on page 1, vivid scenes, real characters with wants and stakes, rising
+tension, and a satisfying arc that resolves by the final page. Open with
+a strong hook appropriate to the "{genre}" genre and tone (it doesn't have
+to literally say "once upon a time" unless that fits the genre/tone).
+
+{source_instruction}
+
+Structure the novel into EXACTLY {NOVEL_PAGE_COUNT} pages, each a self-contained
+chunk of about 150-220 words of vivid, well-written prose (dialogue,
+sensory detail, momentum - never a summary or list). At natural high points
+in the story (roughly 3-4 of the {NOVEL_PAGE_COUNT} pages, not evenly spaced,
+wherever it truly fits the scene), include a short "lesson" the reader can
+take away, tied to "{request.topic}" and growing organically out of what just
+happened to the characters - never preachy, never breaking the story's voice.
+
+Respond ONLY with valid JSON, no markdown, no backticks, no extra text.
+Use this exact structure:
+{{
+  "title": "an evocative novel title",
+  "genre": "{genre}",
+  "pages": [
+    {{
+      "page": 1,
+      "chapterTitle": "a chapter or part title for the opening (only page 1 needs one, or later pages if a new chapter begins there, otherwise use null)",
+      "text": "150-220 words of vivid narrative prose for this page",
+      "lesson": "a short, natural takeaway tied to {request.topic}, or null if this page has none"
+    }}
+  ]
+}}
+
+Rules:
+- Return exactly {NOVEL_PAGE_COUNT} page objects, numbered 1 to {NOVEL_PAGE_COUNT} in order.
+- "chapterTitle" should be null on most pages - only set it where a new chapter or clear scene shift genuinely begins.
+- "lesson" must be null on pages where no lesson naturally fits - do not force one onto every page.
+- The final page must bring the story to a satisfying, complete resolution.
+- All content must be original (no copyrighted characters, quotes, or plots) and age-appropriate."""
+
+    data = call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
+    pages = data.get("pages") or []
+    if len(pages) < NOVEL_PAGE_COUNT:
+        raise HTTPException(status_code=500, detail="Model returned an incomplete novel. Try again.")
+    return data
+
+
 # ---------- MEMORY MATCH ----------
 class MemoryRequest(BaseModel):
     career: str
