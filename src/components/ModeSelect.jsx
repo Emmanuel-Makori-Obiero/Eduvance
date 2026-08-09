@@ -1,3 +1,6 @@
+import modeAcademicIcon from "../assets/mode-academic.webp";
+import modeCoderIcon from "../assets/mode-coder.webp";
+
 const MODES = [
   {
     key: "academic",
@@ -5,6 +8,7 @@ const MODES = [
     code: "MODE / 01",
     desc: "Lessons, quizzes, and chat for Pharmacy, Medicine, and other careers.",
     marker: "var(--color-marker-1)",
+    icon: modeAcademicIcon,
   },
   {
     key: "coder",
@@ -12,6 +16,7 @@ const MODES = [
     code: "MODE / 02",
     desc: "Generate, review, and run code with an offline AI assistant.",
     marker: "var(--color-marker-3)",
+    icon: modeCoderIcon,
   },
 ];
 
@@ -45,6 +50,13 @@ export default function ModeSelect({ onSelect }) {
                   →
                 </span>
               </div>
+              {m.icon && (
+                <img
+                  src={m.icon}
+                  alt=""
+                  className="w-10 h-10 object-contain mb-3"
+                />
+              )}
               <span
                 className="hl block font-display font-semibold text-xl text-ink dark:text-ink-dark mb-2"
                 style={{ "--hl-color": m.marker }}

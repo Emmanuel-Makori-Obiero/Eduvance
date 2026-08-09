@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { generateMemoryGame } from "../api/Memory";
 import Spinner from "./Spinner";
+import memoryWinImg from "../assets/memory-win.webp";
 
 // Simple, original-design memory/matching game: flip cards to pair a
 // term with its definition. Built from the same career/topic input as
@@ -121,6 +122,11 @@ export default function MemoryGame({ career, topic, notes = "", onClose }) {
 
           {allMatched ? (
             <div className="text-center py-16">
+              <img
+                src={memoryWinImg}
+                alt="All matched"
+                className="w-32 h-32 object-contain mx-auto mb-3"
+              />
               <div className="text-xl text-ink dark:text-ink-dark mb-2">
                 🎉 All matched!
               </div>

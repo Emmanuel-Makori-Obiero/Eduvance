@@ -1,15 +1,34 @@
 import { useEffect, useState } from "react";
 import { generateStory } from "../api/Story";
+import { generateSceneImage } from "../api/sceneImage";
 import Spinner from "./Spinner";
 import storyGoodImg from "../assets/story-good.webp";
+import storyGoodImg2 from "../assets/story-good-2.webp";
 import storyMixedImg from "../assets/story-mixed.webp";
+import storyMixedImg2 from "../assets/story-mixed-2.webp";
 import storyPoorImg from "../assets/story-poor.webp";
+import storyPoorImg2 from "../assets/story-poor-2.webp";
 
-const OUTCOME_IMAGE = {
-  good: storyGoodImg,
-  mixed: storyMixedImg,
-  poor: storyPoorImg,
+// Each outcome maps to a pool of illustrations, so replaying the game
+// doesn't always show the same picture for the same outcome type.
+const OUTCOME_IMAGES = {
+  good: [storyGoodImg, storyGoodImg2],
+  mixed: [storyMixedImg, storyMixedImg2],
+  poor: [storyPoorImg, storyPoorImg2],
 };
+
+// Deterministic pick so the same ending node always shows the same image
+// during a session (no flicker on re-render), but different playthroughs
+// / nodes get variety.
+function pickImage(pool, seedKey) {
+  if (!pool || pool.length === 0) return null;
+  let hash = 0;
+  const str = String(seedKey);
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return pool[hash % pool.length];
+}
 
 // A branching "choose your path" scenario: the student is dropped into a
 // realistic situation about the topic, makes a decision, faces a
@@ -43,6 +62,10 @@ export default function StoryGame({ career, topic, notes = "", onClose }) {
   const [retryKey, setRetryKey] = useState(0);
   const [currentId, setCurrentId] = useState("root");
   const [path, setPath] = useState([]); // [{ label, nodeId }]
+  // Real, scene-specific illustrations generated on demand, keyed by node
+  // id. Falls back to the static outcome pool while loading or on failure.
+  const [nodeImages, setNodeImages] = useState({});
+  const [imageLoading, setImageLoading] = useState(false);
 
   const newScenario = () => setRetryKey((k) => k + 1);
 
@@ -52,6 +75,7 @@ export default function StoryGame({ career, topic, notes = "", onClose }) {
     setError(null);
     setCurrentId("root");
     setPath([]);
+    setNodeImages({});
     generateStory(career, topic, notes).then((data) => {
       if (cancelled) return;
       if (!data || !data.nodes || !data.nodes.root) {
@@ -80,6 +104,28 @@ export default function StoryGame({ career, topic, notes = "", onClose }) {
   const node = storyData?.nodes?.[currentId];
   const isEnding = node && !node.choices;
   const outcomeStyle = isEnding ? OUTCOME_STYLE[node.outcome] : null;
+
+  // Generate a real illustration for this exact ending's text once it's
+  // showing and we don't already have one cached for it.
+  useEffect(() => {
+    if (!storyData || !node || !isEnding) return;
+    if (nodeImages[currentId] !== undefined) return; // already have it (or already tried)
+
+    let cancelled = false;
+    setImageLoading(true);
+    const scenePrompt = `${outcomeStyle.label.toLowerCase()} scene: ${node.text.slice(0, 260)}`;
+
+    generateSceneImage(scenePrompt).then((imageUrl) => {
+      if (cancelled) return;
+      setImageLoading(false);
+      setNodeImages((prev) => ({ ...prev, [currentId]: imageUrl }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyData, currentId, isEnding]);
 
   return (
     <div>
@@ -143,11 +189,36 @@ export default function StoryGame({ career, topic, notes = "", onClose }) {
           >
             {isEnding && (
               <>
-                <img
-                  src={OUTCOME_IMAGE[node.outcome]}
-                  alt={outcomeStyle.label}
-                  className="w-full h-40 object-cover rounded-md mb-3"
-                />
+                {(() => {
+                  const aiImage = nodeImages[currentId];
+                  if (aiImage) {
+                    return (
+                      <img
+                        src={aiImage}
+                        alt={outcomeStyle.label}
+                        className="w-full h-40 object-cover rounded-md mb-3"
+                      />
+                    );
+                  }
+                  if (imageLoading) {
+                    return (
+                      <div className="w-full h-40 rounded-md mb-3 bg-paper dark:bg-paper-dark border border-line dark:border-line-dark flex items-center justify-center">
+                        <Spinner />
+                      </div>
+                    );
+                  }
+                  const fallback = pickImage(
+                    OUTCOME_IMAGES[node.outcome],
+                    `${storyData.title}-${currentId}`,
+                  );
+                  return fallback ? (
+                    <img
+                      src={fallback}
+                      alt={outcomeStyle.label}
+                      className="w-full h-40 object-cover rounded-md mb-3"
+                    />
+                  ) : null;
+                })()}
                 <span
                   className={`inline-block font-mono text-[10px] tracking-widest uppercase rounded px-2 py-1 mb-3 ${outcomeStyle.bg} ${outcomeStyle.text}`}
                 >

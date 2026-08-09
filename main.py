@@ -996,3 +996,83 @@ def code_assistant(request: CodeRequest):
         "structure."
     )
     return call_llm_json(system, prompt, request.provider)
+
+
+# ---------- SCENE IMAGE GENERATION (Story mode / Novel mode illustrations) ----------
+# Generates a real illustration for the specific scene text passed in,
+# instead of picking from a small pool of pre-made pictures. Uses the same
+# GOOGLE_API_KEY as everything else, on Gemini's image-generation model.
+GEMINI_IMAGE_MODEL = os.environ.get(
+    "GEMINI_IMAGE_MODEL", "gemini-2.0-flash-preview-image-generation"
+)
+
+
+class SceneImageRequest(BaseModel):
+    prompt: str  # short scene description built by the frontend
+
+
+@app.post("/api/scene-image")
+def generate_scene_image(request: SceneImageRequest):
+    if not GOOGLE_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="No Gemini API key configured on the server. Set "
+                   "GOOGLE_API_KEY in your .env file to enable scene images.",
+        )
+
+    prompt = (request.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required.")
+
+    # Keep the prompt tight and steer away from photoreal/copyrighted asks -
+    # this mirrors the flat-vector/illustrated style used elsewhere in the app.
+    styled_prompt = (
+        f"Flat vector illustration, no text, no watermark, clean minimal "
+        f"editorial art style, original characters and scenery only: {prompt}"
+    )
+
+    url = f"{GEMINI_API_BASE}/{GEMINI_IMAGE_MODEL}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": styled_prompt}]}],
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+    }
+
+    try:
+        response = requests.post(
+            url, params={"key": GOOGLE_API_KEY}, json=payload, timeout=60
+        )
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Image generation rate limit was hit. Try again shortly.",
+            )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Image generation request failed (status {status or 'unknown'}).",
+        )
+    except requests.exceptions.RequestException:
+        raise HTTPException(
+            status_code=502, detail="Couldn't reach the image generation model."
+        )
+
+    result = response.json()
+    try:
+        parts = result["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError):
+        raise HTTPException(
+            status_code=500, detail="Image model returned an unexpected response."
+        )
+
+    for part in parts:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
+            return {"image": f"data:{mime};base64,{inline['data']}"}
+
+    raise HTTPException(
+        status_code=500,
+        detail="Image model didn't return an image for this prompt.",
+    )

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getHistory, deleteHistoryEntry } from "../api/history";
+import historyEmptyImg from "../assets/history-empty.webp";
 
 export default function History() {
   const [history, setHistory] = useState([]);
@@ -16,9 +17,16 @@ export default function History() {
 
   if (history.length === 0) {
     return (
-      <p className="text-sm text-muted dark:text-muted-dark">
-        Nothing here yet — completed lessons will appear in this list.
-      </p>
+      <div className="text-center py-10">
+        <img
+          src={historyEmptyImg}
+          alt=""
+          className="w-28 h-28 object-contain mx-auto mb-3"
+        />
+        <p className="text-sm text-muted dark:text-muted-dark">
+          Nothing here yet — completed lessons will appear in this list.
+        </p>
+      </div>
     );
   }
 

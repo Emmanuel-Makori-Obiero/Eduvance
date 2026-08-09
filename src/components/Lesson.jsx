@@ -9,6 +9,10 @@ import MemoryGame from "./MemoryGame";
 import StoryGame from "./StoryGame";
 import NovelBook from "./NovelBook";
 import NotesInput from "./NotesInput";
+import modeQuizIcon from "../assets/mode-quiz.webp";
+import modePlatformerIcon from "../assets/mode-platformer.webp";
+import modeMemoryIcon from "../assets/mode-memory.webp";
+import modeStoryIcon from "../assets/mode-story.webp";
 
 const PLAY_MODES = [
   {
@@ -16,30 +20,35 @@ const PLAY_MODES = [
     label: "Quiz game",
     desc: "Race the clock, answer fast.",
     marker: "var(--color-marker-1)",
+    icon: modeQuizIcon,
   },
   {
     key: "platformer",
     label: "Platformer",
     desc: "Jump through the topic level by level.",
     marker: "var(--color-marker-3)",
+    icon: modePlatformerIcon,
   },
   {
     key: "memory",
     label: "Memory match",
     desc: "Pair terms with their meanings.",
     marker: "var(--color-marker-2)",
+    icon: modeMemoryIcon,
   },
   {
     key: "story",
     label: "Story mode",
     desc: "Live out a scenario — your choices shape what happens.",
     marker: "var(--color-marker-1)",
+    icon: modeStoryIcon,
   },
   {
     key: "novel",
     label: "Novel",
     desc: "A short book in your genre, with the lesson woven in.",
     marker: "var(--color-marker-3)",
+    icon: null,
   },
 ];
 
@@ -436,16 +445,25 @@ function GamePanel({ topic, notes, onPlay }) {
               <button
                 key={m.key}
                 onClick={() => onPlay(m.key)}
-                className="group text-left border border-line dark:border-line-dark rounded-lg px-3 py-2.5 hover:-translate-y-0.5 transition-transform"
+                className="group flex items-center gap-3 text-left border border-line dark:border-line-dark rounded-lg px-3 py-2.5 hover:-translate-y-0.5 transition-transform"
               >
-                <span
-                  className="hl block text-sm font-medium text-ink dark:text-ink-dark"
-                  style={{ "--hl-color": m.marker }}
-                >
-                  {m.label}
-                </span>
-                <span className="block text-xs text-muted dark:text-muted-dark mt-0.5">
-                  {m.desc}
+                {m.icon && (
+                  <img
+                    src={m.icon}
+                    alt=""
+                    className="w-9 h-9 object-contain shrink-0"
+                  />
+                )}
+                <span className="min-w-0">
+                  <span
+                    className="hl block text-sm font-medium text-ink dark:text-ink-dark"
+                    style={{ "--hl-color": m.marker }}
+                  >
+                    {m.label}
+                  </span>
+                  <span className="block text-xs text-muted dark:text-muted-dark mt-0.5">
+                    {m.desc}
+                  </span>
                 </span>
               </button>
             ))}
