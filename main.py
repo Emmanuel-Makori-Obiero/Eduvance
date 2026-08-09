@@ -218,12 +218,22 @@ def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) 
                     detail=f"{model_label} is temporarily overloaded on "
                            f"Google's side and didn't recover after retrying.",
                 )
-            if status in (400, 404):
+            if status == 404:
+                # This specific model isn't reachable right now (wrong ID,
+                # not enabled for this key/project, or deprecated) -- that
+                # says nothing about the OTHER models in the chain, so
+                # it's treated as a capacity-style error: move on to the
+                # next model instead of giving up entirely.
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"{model_label} isn't reachable (model not found "
+                           f"or not enabled for this API key).",
+                )
+            if status == 400:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{model_label} rejected the request (status {status}) "
-                           f"-- this usually means the model name is wrong or the "
-                           f"request was malformed, not a quota issue.",
+                    detail=f"{model_label} rejected the request as malformed "
+                           f"(status 400). This isn't a quota issue.",
                 )
             if status in (401, 403):
                 raise HTTPException(
@@ -263,7 +273,13 @@ def _call_hosted_model(system: str, user_prompt: str, model_id: str) -> str:
 # so it's safe and useful to transparently retry the SAME request against
 # the next model in the chain rather than failing outright.
 def _is_capacity_error(exc: HTTPException) -> bool:
-    return exc.status_code in (429, 503)
+    # 429 (rate limited), 503 (temporarily overloaded), and 404 (this
+    # specific model isn't reachable) all say nothing about whether the
+    # NEXT model in the chain would work -- so all three advance to the
+    # next model instead of failing the whole request. 400/401/403 do
+    # NOT advance, since a bad request or bad key fails identically on
+    # every model in the chain.
+    return exc.status_code in (429, 503, 404)
 
 
 def _call_hosted_chain(system: str, user_prompt: str, start_at: str = None) -> str:
