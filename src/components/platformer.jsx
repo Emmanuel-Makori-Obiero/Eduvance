@@ -100,7 +100,17 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
               <div data-el="scoreText">000</div>
             </div>
           </div>
-          <div className="flex gap-1 mb-2" data-el="hpRow"></div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex gap-1" data-el="hpRow"></div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] tracking-widest text-yellow-500">
+                🔫 AMMO
+              </span>
+              <span data-el="bulletsText" className="text-sm">
+                0
+              </span>
+            </div>
+          </div>
 
           <div className="relative border-[6px] border-neutral-800 rounded shadow-lg bg-[#14141c] overflow-hidden">
             <canvas
@@ -113,14 +123,14 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
             {/* Dialogue box */}
             <div
               data-el="dialogue"
-              className="absolute left-2 right-2 bottom-2 bg-neutral-900 border-4 border-white p-4 transition-transform duration-300"
+              className="absolute left-2 right-2 bottom-2 bg-neutral-900 border-4 border-white p-4 transition-transform duration-300 text-neutral-100"
               style={{ transform: "translateY(140%)" }}
             >
               <div
                 data-el="dlgSpeaker"
                 className="text-xs text-yellow-400 uppercase tracking-wide mb-2"
               ></div>
-              <div data-el="dlgBody" className="text-sm mb-3"></div>
+              <div data-el="dlgBody" className="text-sm mb-3 text-neutral-100"></div>
               <div data-el="quiz" className="hidden">
                 <div
                   data-el="quizQ"
@@ -140,10 +150,11 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
               </button>
             </div>
 
-            {/* Battle screen (reused) */}
+            {/* Battle screen (reused) — two panels: YOU vs the enemy, plus a
+                per-question countdown so it plays like a timed quiz duel. */}
             <div
               data-el="battleScreen"
-              className="hidden absolute inset-0 bg-black/90 flex-col items-center p-3 overflow-y-auto"
+              className="hidden absolute inset-0 bg-black/90 flex-col items-center p-3 overflow-y-auto text-neutral-100"
             >
               <div
                 data-el="enemyNameLabel"
@@ -155,39 +166,55 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
                 height={100}
                 style={{ width: 100, height: "auto" }}
               ></canvas>
-              <div className="w-full max-w-sm mt-2 shrink-0">
-                <div className="text-[10px] tracking-widest text-red-400 mb-0.5">
-                  ENEMY
-                </div>
-                <div className="h-2 bg-neutral-700 rounded overflow-hidden mb-1">
+
+              <div className="w-full max-w-sm mt-2 shrink-0 flex gap-3">
+                <div className="flex-1 border border-green-700/60 rounded p-1.5">
+                  <div className="text-[10px] tracking-widest text-green-400 mb-0.5">
+                    YOU
+                  </div>
+                  <div className="h-2 bg-neutral-700 rounded overflow-hidden mb-1">
+                    <div
+                      data-el="playerBar"
+                      className="h-full bg-green-500"
+                      style={{ width: "100%" }}
+                    ></div>
+                  </div>
                   <div
-                    data-el="enemyBar"
-                    className="h-full bg-red-500"
-                    style={{ width: "100%" }}
+                    data-el="playerHpLabel"
+                    className="text-xs text-neutral-300"
                   ></div>
                 </div>
-                <div
-                  data-el="enemyHpLabel"
-                  className="text-xs text-neutral-300 mb-2"
-                ></div>
-                <div className="text-[10px] tracking-widest text-green-400 mb-0.5">
-                  YOU
-                </div>
-                <div className="h-2 bg-neutral-700 rounded overflow-hidden mb-1">
+                <div className="flex-1 border border-red-700/60 rounded p-1.5">
+                  <div className="text-[10px] tracking-widest text-red-400 mb-0.5">
+                    ENEMY
+                  </div>
+                  <div className="h-2 bg-neutral-700 rounded overflow-hidden mb-1">
+                    <div
+                      data-el="enemyBar"
+                      className="h-full bg-red-500"
+                      style={{ width: "100%" }}
+                    ></div>
+                  </div>
                   <div
-                    data-el="playerBar"
-                    className="h-full bg-green-500"
-                    style={{ width: "100%" }}
+                    data-el="enemyHpLabel"
+                    className="text-xs text-neutral-300"
                   ></div>
                 </div>
-                <div
-                  data-el="playerHpLabel"
-                  className="text-xs text-neutral-300 mb-2"
-                ></div>
               </div>
+
+              <div className="w-full max-w-sm mt-2">
+                <div className="h-1.5 bg-neutral-700 rounded overflow-hidden">
+                  <div
+                    data-el="battleTimerBar"
+                    className="h-full bg-yellow-400"
+                    style={{ width: "100%" }}
+                  ></div>
+                </div>
+              </div>
+
               <div
                 data-el="battleQ"
-                className="text-sm mb-2 text-center w-full max-w-sm"
+                className="text-sm mt-2 mb-2 text-center w-full max-w-sm text-neutral-100 font-medium"
               ></div>
               <div
                 data-el="battleOpts"
@@ -195,7 +222,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
               ></div>
               <div
                 data-el="battleFact"
-                className="text-xs mt-2 text-center max-w-sm"
+                className="text-xs mt-2 text-center max-w-sm text-neutral-200"
               ></div>
               <button
                 data-el="battleContinue"
@@ -224,8 +251,10 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
           </div>
 
           <div className="text-xs text-muted dark:text-muted-dark mt-2">
-            Arrow keys / A D to run, Space / W to jump. Reach each flag in
-            order. Touch a villain to battle it.
+            Arrow keys / A D to run, Space / W to jump, F to shoot. Answer
+            checkpoint questions correctly to earn ammo. Jump clean over a
+            patrolling villain to dodge its questions — get caught on the
+            ground and you'll have to answer, timer running.
           </div>
         </div>
       )}
@@ -248,6 +277,17 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   const SPEED = 3.2;
   const SPACING = 420; // horizontal distance between checkpoints
   const WORLD_WIDTH = gameData.checkpoints.length * SPACING + 300;
+
+  // Enemy AI tuning: they patrol on their own, notice the player when
+  // close enough and give chase (hopping like a soldier as they go),
+  // then fall back to patrolling if they lose the trail.
+  const CHASE_RANGE = 240;
+  const PATROL_SPEED = 1.1;
+  const CHASE_SPEED = 2.15;
+  const ENEMY_JUMP_V = -9.5;
+  const BULLET_SPEED = 9;
+  const BULLET_DAMAGE = 26;
+  const BATTLE_TIME_MS = 9000;
 
   // Lay checkpoints out left-to-right as flags on the ground.
   const checkpoints = gameData.checkpoints.map((cp, i) => ({
@@ -285,10 +325,14 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
       x: baseX,
       spawnX: baseX,
       y: GROUND_Y,
+      vy: 0,
+      onGround: true,
       dir: 1,
       hp: 100,
       maxHp: 100,
       defeated: false,
+      jumpTimer: 60 + Math.floor(Math.random() * 60),
+      state: "patrol", // "patrol" | "chase"
     };
   });
 
@@ -302,7 +346,10 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     hp: 100,
     maxHp: 100,
     flash: 0,
+    bullets: 0,
   };
+
+  let bullets = []; // { x, y, dir }
 
   let particles = [];
   let shake = 0;
@@ -536,6 +583,102 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     });
   }
 
+  function updateEnemies() {
+    enemies.forEach((e) => {
+      if (e.defeated || (e.after ?? 0) > currentIndex) return;
+
+      const dist = player.x - e.x;
+      const sameLevel = Math.abs(player.y - e.y) < 70;
+      e.state = Math.abs(dist) < CHASE_RANGE && sameLevel ? "chase" : "patrol";
+
+      if (e.state === "chase") {
+        e.dir = dist > 0 ? 1 : -1;
+        e.x += e.dir * CHASE_SPEED;
+        // hop periodically while on the hunt, like a soldier closing in
+        e.jumpTimer--;
+        if (e.jumpTimer <= 0 && e.onGround) {
+          e.vy = ENEMY_JUMP_V;
+          e.onGround = false;
+          e.jumpTimer = 45 + Math.floor(Math.random() * 30);
+        }
+      } else {
+        // patrol back and forth around the spawn point
+        e.x += e.dir * PATROL_SPEED;
+        if (e.x > e.spawnX + (e.range || 60)) e.dir = -1;
+        if (e.x < e.spawnX - (e.range || 60)) e.dir = 1;
+        // occasional patrol hop, like a soldier on watch
+        e.jumpTimer--;
+        if (e.jumpTimer <= 0 && e.onGround) {
+          e.vy = ENEMY_JUMP_V * 0.8;
+          e.onGround = false;
+          e.jumpTimer = 90 + Math.floor(Math.random() * 90);
+        }
+      }
+
+      e.vy += GRAVITY;
+      e.y += e.vy;
+      if (e.y >= GROUND_Y) {
+        e.y = GROUND_Y;
+        e.vy = 0;
+        e.onGround = true;
+      } else {
+        e.onGround = false;
+      }
+    });
+  }
+
+  function fireBullet() {
+    if (inDialogue || inBattle) return;
+    if (player.bullets <= 0) return;
+    player.bullets--;
+    renderBulletsHud();
+    bullets.push({
+      x: player.x + player.facing * 18,
+      y: player.y - 20,
+      dir: player.facing,
+    });
+    spawnParticles(player.x + player.facing * 18, player.y - 20, "#ffe27a", 4);
+  }
+
+  function updateBullets() {
+    bullets.forEach((b) => {
+      b.x += b.dir * BULLET_SPEED;
+    });
+    bullets = bullets.filter((b) => {
+      if (b.x < camX - 40 || b.x > camX + canvas.width + 40) return false;
+      for (const e of enemies) {
+        if (e.defeated || (e.after ?? 0) > currentIndex) continue;
+        if (inBattle && activeEnemy === e) continue;
+        if (Math.abs(b.x - e.x) < 20 && Math.abs(b.y - (e.y - 16)) < 26) {
+          e.hp = Math.max(0, e.hp - BULLET_DAMAGE);
+          spawnParticles(e.x, e.y - 16, e.color, 8);
+          shake = Math.min(6, shake + 3);
+          if (e.hp <= 0 && !e.defeated) {
+            e.defeated = true;
+            score += 25;
+            $("scoreText").textContent = String(score).padStart(3, "0");
+          }
+          return false; // bullet consumed
+        }
+      }
+      return true;
+    });
+  }
+
+  function drawBullets() {
+    bullets.forEach((b) => {
+      ctx.fillStyle = "#ffe27a";
+      ctx.beginPath();
+      ctx.arc(b.x - camX, b.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function renderBulletsHud() {
+    const el = $("bulletsText");
+    if (el) el.textContent = String(player.bullets);
+  }
+
   function drawPlayer() {
     const sx = player.x - camX;
     ctx.save();
@@ -577,6 +720,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     drawFlags();
     drawPlatforms();
     drawParticles();
+    drawBullets();
     drawEnemies();
     drawPlayer();
     ctx.restore();
@@ -606,9 +750,14 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
       keys[k] = true;
       e.preventDefault();
     }
+    if ((k === "f" || k === "F") && !keys._fireHeld) {
+      keys._fireHeld = true;
+      fireBullet();
+    }
   }
   function onKeyUp(e) {
     keys[e.key] = false;
+    if (e.key === "f" || e.key === "F") keys._fireHeld = false;
   }
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
@@ -617,6 +766,11 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     for (const e of enemies) {
       if (e.defeated || (e.after ?? 0) > currentIndex) continue;
       if (Math.abs(player.x - e.x) < 26) {
+        // Clear a jump over the enemy's head and you dodge the fight
+        // entirely — only a landed hit (feet near the enemy's feet)
+        // triggers the quiz battle.
+        const playerAirborneAbove = !player.onGround && player.y < e.y - 18;
+        if (playerAirborneAbove) continue;
         startBattle(e);
         return true;
       }
@@ -686,6 +840,10 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     if (!running) return;
     frame++;
     movePlayer();
+    if (!inDialogue && !inBattle) {
+      updateEnemies();
+      updateBullets();
+    }
     render();
     rafId = requestAnimationFrame(gameLoop);
   }
@@ -719,6 +877,8 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
           if (i === cp.challenge.answer) {
             btn.classList.add("bg-green-700", "border-green-400");
             score += 20;
+            player.bullets += 2;
+            renderBulletsHud();
           } else {
             btn.classList.add("bg-red-800", "border-red-400");
             buttons[cp.challenge.answer].classList.add(
@@ -789,6 +949,49 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   }
   let battleQueue = [];
 
+  let battleTimerRaf = null;
+  let battleDeadline = 0;
+  let battleAnswered = false;
+
+  function stopBattleTimer() {
+    if (battleTimerRaf) cancelAnimationFrame(battleTimerRaf);
+    battleTimerRaf = null;
+  }
+
+  function startBattleTimer() {
+    stopBattleTimer();
+    battleDeadline = Date.now() + BATTLE_TIME_MS;
+    const tick = () => {
+      if (!inBattle || battleAnswered) return;
+      const remaining = Math.max(0, battleDeadline - Date.now());
+      const pct = (remaining / BATTLE_TIME_MS) * 100;
+      const bar = $("battleTimerBar");
+      if (bar) bar.style.width = pct + "%";
+      if (remaining <= 0) {
+        handleBattleTimeout();
+        return;
+      }
+      battleTimerRaf = requestAnimationFrame(tick);
+    };
+    battleTimerRaf = requestAnimationFrame(tick);
+  }
+
+  function handleBattleTimeout() {
+    if (battleAnswered) return;
+    battleAnswered = true;
+    const opts = $("battleOpts");
+    const q = activeEnemy.questions[battleQueue[battleQIndex]];
+    opts.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    const correctBtn = opts.querySelectorAll("button")[q.answer];
+    if (correctBtn) correctBtn.classList.add("bg-green-700", "border-green-400");
+    player.hp = Math.max(0, player.hp - 18);
+    player.flash = 20;
+    $("battleFact").textContent = "⏰ Time's up! " + q.wrongFact;
+    $("scoreText").textContent = String(score).padStart(3, "0");
+    updateBattleBars();
+    $("battleContinue").classList.remove("hidden");
+  }
+
   function startBattle(e) {
     inBattle = true;
     activeEnemy = e;
@@ -808,18 +1011,23 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
       battleQueue = shuffledIndices(activeEnemy.questions.length);
       battleQIndex = 0;
     }
+    battleAnswered = false;
     const q = activeEnemy.questions[battleQueue[battleQIndex]];
     $("battleQ").textContent = q.q;
     const opts = $("battleOpts");
     opts.innerHTML = "";
     $("battleContinue").classList.add("hidden");
     $("battleFact").textContent = "";
+    const bar = $("battleTimerBar");
+    if (bar) bar.style.width = "100%";
     q.options.forEach((opt, i) => {
       const btn = document.createElement("button");
       btn.className =
-        "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600";
+        "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-100";
       btn.textContent = opt;
       btn.onclick = () => {
+        if (battleAnswered) return;
+        battleAnswered = true;
         opts.querySelectorAll("button").forEach((b) => (b.disabled = true));
         if (i === q.answer) {
           btn.classList.add("bg-green-700", "border-green-400");
@@ -841,6 +1049,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
       };
       opts.appendChild(btn);
     });
+    startBattleTimer();
   }
 
   function onBattleContinue() {
@@ -863,6 +1072,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   $("battleContinue").addEventListener("click", onBattleContinue);
 
   function endBattle(message) {
+    stopBattleTimer();
     $("battleFact").textContent = message;
     $("battleQ").textContent = "";
     $("battleOpts").innerHTML = "";
@@ -882,6 +1092,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
 
   // init
   renderHpHud();
+  renderBulletsHud();
   $("missionText").textContent = "Head toward the " + currentCheckpoint().name;
   $("scoreText").textContent = "000";
   gameLoop();
@@ -897,6 +1108,7 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     running = false;
     cancelAnimationFrame(rafId);
     cancelAnimationFrame(battleRaf);
+    stopBattleTimer();
     document.removeEventListener("keydown", onKeyDown);
     document.removeEventListener("keyup", onKeyUp);
     $("winNewGameBtn")?.removeEventListener("click", onWinNewGameClick);

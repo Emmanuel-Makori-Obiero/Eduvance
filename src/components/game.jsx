@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { generateGame } from "../api/game";
 import Spinner from "./Spinner";
 
-export default function Game({ career, topic, onClose }) {
+export default function Game({ career, topic, notes = "", onClose }) {
   const [gameData, setGameData] = useState(null);
   const [error, setError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -16,7 +16,7 @@ export default function Game({ career, topic, onClose }) {
     let cancelled = false;
     setGameData(null);
     setError(null);
-    generateGame(career, topic).then((data) => {
+    generateGame(career, topic, notes).then((data) => {
       if (cancelled) return;
       if (!data || !data.checkpoints || data.checkpoints.length === 0) {
         setError(
@@ -29,7 +29,7 @@ export default function Game({ career, topic, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [career, topic, retryKey]);
+  }, [career, topic, notes, retryKey]);
 
   // run the game engine once we have data + the canvas is mounted
   useEffect(() => {
@@ -131,14 +131,14 @@ export default function Game({ career, topic, onClose }) {
             {/* Dialogue box */}
             <div
               data-el="dialogue"
-              className="absolute left-2 right-2 bottom-2 bg-neutral-900 border-4 border-white p-4 transition-transform duration-300"
+              className="absolute left-2 right-2 bottom-2 bg-neutral-900 border-4 border-white p-4 transition-transform duration-300 text-neutral-100"
               style={{ transform: "translateY(140%)" }}
             >
               <div
                 data-el="dlgSpeaker"
                 className="text-xs text-yellow-400 uppercase tracking-wide mb-2"
               ></div>
-              <div data-el="dlgBody" className="text-sm mb-3"></div>
+              <div data-el="dlgBody" className="text-sm mb-3 text-neutral-100"></div>
               <div data-el="quiz" className="hidden">
                 <div
                   data-el="quizQ"
@@ -161,7 +161,7 @@ export default function Game({ career, topic, onClose }) {
             {/* Battle screen */}
             <div
               data-el="battleScreen"
-              className="hidden absolute inset-0 bg-black/90 flex-col items-center p-3 overflow-y-auto"
+              className="hidden absolute inset-0 bg-black/90 flex-col items-center p-3 overflow-y-auto text-neutral-100"
             >
               <div
                 data-el="enemyNameLabel"
@@ -205,7 +205,7 @@ export default function Game({ career, topic, onClose }) {
               </div>
               <div
                 data-el="battleQ"
-                className="text-sm mb-2 text-center w-full max-w-sm"
+                className="text-sm mb-2 text-center w-full max-w-sm text-neutral-100 font-medium"
               ></div>
               <div
                 data-el="battleOpts"
@@ -213,7 +213,7 @@ export default function Game({ career, topic, onClose }) {
               ></div>
               <div
                 data-el="battleFact"
-                className="text-xs mt-2 text-center max-w-sm"
+                className="text-xs mt-2 text-center max-w-sm text-neutral-200"
               ></div>
               <button
                 data-el="battleContinue"
@@ -614,7 +614,7 @@ function runGameEngine(gameData, canvas, root, onWinNewGame) {
       cp.challenge.options.forEach((opt, i) => {
         const btn = document.createElement("button");
         btn.className =
-          "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600";
+          "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-100";
         btn.textContent = opt;
         btn.onclick = () => {
           const buttons = optsWrap.querySelectorAll("button");
@@ -726,7 +726,7 @@ function runGameEngine(gameData, canvas, root, onWinNewGame) {
     q.options.forEach((opt, i) => {
       const btn = document.createElement("button");
       btn.className =
-        "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600";
+        "text-left text-sm px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-100";
       btn.textContent = opt;
       btn.onclick = () => {
         opts.querySelectorAll("button").forEach((b) => (b.disabled = true));
