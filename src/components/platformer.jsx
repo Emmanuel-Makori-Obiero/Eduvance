@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { generateGame } from "../api/game";
 import Spinner from "./Spinner";
+import TouchButton from "./TouchButton";
 
 // A Castlevania-style side-scrolling platformer, built from the SAME
 // AI-generated { checkpoints, enemies } shape as game.jsx — just laid
@@ -13,6 +14,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
   const [retryKey, setRetryKey] = useState(0);
   const canvasRef = useRef(null);
   const rootRef = useRef(null);
+  const controlsRef = useRef({});
 
   const newGame = () => setRetryKey((k) => k + 1);
 
@@ -42,6 +44,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
       canvasRef.current,
       rootRef.current,
       newGame,
+      controlsRef.current,
     );
     return cleanup;
   }, [gameData]);
@@ -130,7 +133,10 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
                 data-el="dlgSpeaker"
                 className="text-xs text-yellow-400 uppercase tracking-wide mb-2"
               ></div>
-              <div data-el="dlgBody" className="text-sm mb-3 text-neutral-100"></div>
+              <div
+                data-el="dlgBody"
+                className="text-sm mb-3 text-neutral-100"
+              ></div>
               <div data-el="quiz" className="hidden">
                 <div
                   data-el="quizQ"
@@ -250,11 +256,47 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
             </div>
           </div>
 
+          {/* On-screen touch controls — lets phones/tablets play without
+              a keyboard. Uses pointer events so it also works with mouse. */}
+          <div className="flex items-center justify-between gap-4 mt-3 select-none">
+            <div className="grid grid-cols-2 gap-2">
+              <TouchButton
+                label="◀"
+                aria="Move left"
+                onPress={() => controlsRef.current.press?.("ArrowLeft")}
+                onRelease={() => controlsRef.current.release?.("ArrowLeft")}
+              />
+              <TouchButton
+                label="▶"
+                aria="Move right"
+                onPress={() => controlsRef.current.press?.("ArrowRight")}
+                onRelease={() => controlsRef.current.release?.("ArrowRight")}
+              />
+            </div>
+            <div className="flex gap-2">
+              <TouchButton
+                label="⤒"
+                aria="Jump"
+                wide
+                onPress={() => controlsRef.current.press?.("ArrowUp")}
+                onRelease={() => controlsRef.current.release?.("ArrowUp")}
+              />
+              <TouchButton
+                label="🔫"
+                aria="Fire"
+                wide
+                onPress={() => controlsRef.current.press?.("f")}
+                onRelease={() => controlsRef.current.release?.("f")}
+              />
+            </div>
+          </div>
+
           <div className="text-xs text-muted dark:text-muted-dark mt-2">
-            Arrow keys / A D to run, Space / W to jump, F to shoot. Answer
-            checkpoint questions correctly to earn ammo. Jump clean over a
-            patrolling villain to dodge its questions — get caught on the
-            ground and you'll have to answer, timer running.
+            Arrow keys / A D to run, Space / W to jump, F to shoot — or use the
+            on-screen buttons above on a phone. Answer checkpoint questions
+            correctly to earn ammo. Jump clean over a patrolling villain to
+            dodge its questions — get caught on the ground and you'll have to
+            answer, timer running.
           </div>
         </div>
       )}
@@ -266,7 +308,7 @@ export default function Platformer({ career, topic, notes = "", onClose }) {
 // Engine: side-scrolling platformer built from checkpoints (laid out
 // left-to-right as flags along the ground) and enemies (ground-patrolling).
 // ---------------------------------------------------------------------
-function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
+function runPlatformerEngine(gameData, canvas, root, onWinNewGame, controls) {
   const $ = (name) => root.querySelector(`[data-el="${name}"]`);
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
@@ -762,6 +804,24 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
 
+  // Let the on-screen touch controls drive the exact same `keys` state
+  // as the keyboard, so phones/tablets can play without a keyboard.
+  if (controls) {
+    controls.press = (k) => {
+      keys[k] = true;
+      if (k === "f") {
+        if (!keys._fireHeld) {
+          keys._fireHeld = true;
+          fireBullet();
+        }
+      }
+    };
+    controls.release = (k) => {
+      keys[k] = false;
+      if (k === "f") keys._fireHeld = false;
+    };
+  }
+
   function checkEnemyCollision() {
     for (const e of enemies) {
       if (e.defeated || (e.after ?? 0) > currentIndex) continue;
@@ -983,7 +1043,8 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     const q = activeEnemy.questions[battleQueue[battleQIndex]];
     opts.querySelectorAll("button").forEach((b) => (b.disabled = true));
     const correctBtn = opts.querySelectorAll("button")[q.answer];
-    if (correctBtn) correctBtn.classList.add("bg-green-700", "border-green-400");
+    if (correctBtn)
+      correctBtn.classList.add("bg-green-700", "border-green-400");
     player.hp = Math.max(0, player.hp - 18);
     player.flash = 20;
     $("battleFact").textContent = "⏰ Time's up! " + q.wrongFact;
@@ -1111,6 +1172,10 @@ function runPlatformerEngine(gameData, canvas, root, onWinNewGame) {
     stopBattleTimer();
     document.removeEventListener("keydown", onKeyDown);
     document.removeEventListener("keyup", onKeyUp);
+    if (controls) {
+      controls.press = () => {};
+      controls.release = () => {};
+    }
     $("winNewGameBtn")?.removeEventListener("click", onWinNewGameClick);
   };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { generateGame } from "../api/game";
 import Spinner from "./Spinner";
+import TouchButton from "./TouchButton";
 
 export default function Game({ career, topic, notes = "", onClose }) {
   const [gameData, setGameData] = useState(null);
@@ -8,6 +9,7 @@ export default function Game({ career, topic, notes = "", onClose }) {
   const [retryKey, setRetryKey] = useState(0);
   const canvasRef = useRef(null);
   const rootRef = useRef(null);
+  const controlsRef = useRef({});
 
   const newGame = () => setRetryKey((k) => k + 1);
 
@@ -39,6 +41,7 @@ export default function Game({ career, topic, notes = "", onClose }) {
       canvasRef.current,
       rootRef.current,
       newGame,
+      controlsRef.current,
     );
     return cleanup;
   }, [gameData]);
@@ -138,7 +141,10 @@ export default function Game({ career, topic, notes = "", onClose }) {
                 data-el="dlgSpeaker"
                 className="text-xs text-yellow-400 uppercase tracking-wide mb-2"
               ></div>
-              <div data-el="dlgBody" className="text-sm mb-3 text-neutral-100"></div>
+              <div
+                data-el="dlgBody"
+                className="text-sm mb-3 text-neutral-100"
+              ></div>
               <div data-el="quiz" className="hidden">
                 <div
                   data-el="quizQ"
@@ -241,9 +247,46 @@ export default function Game({ career, topic, notes = "", onClose }) {
             </div>
           </div>
 
+          {/* On-screen touch controls — lets phones/tablets play without
+              a keyboard. Uses pointer events so it also works with mouse. */}
+          <div className="flex items-center justify-center mt-3 select-none">
+            <div className="grid grid-cols-3 grid-rows-3 gap-2 w-[168px]">
+              <div />
+              <TouchButton
+                label="▲"
+                aria="Move up"
+                onPress={() => controlsRef.current.press?.("ArrowUp")}
+                onRelease={() => controlsRef.current.release?.("ArrowUp")}
+              />
+              <div />
+              <TouchButton
+                label="◀"
+                aria="Move left"
+                onPress={() => controlsRef.current.press?.("ArrowLeft")}
+                onRelease={() => controlsRef.current.release?.("ArrowLeft")}
+              />
+              <div />
+              <TouchButton
+                label="▶"
+                aria="Move right"
+                onPress={() => controlsRef.current.press?.("ArrowRight")}
+                onRelease={() => controlsRef.current.release?.("ArrowRight")}
+              />
+              <div />
+              <TouchButton
+                label="▼"
+                aria="Move down"
+                onPress={() => controlsRef.current.press?.("ArrowDown")}
+                onRelease={() => controlsRef.current.release?.("ArrowDown")}
+              />
+              <div />
+            </div>
+          </div>
+
           <div className="text-xs text-muted dark:text-muted-dark mt-2">
-            Arrow keys / WASD to move, or click to jump-travel. Follow the
-            compass. Bump a villain to battle it.
+            Arrow keys / WASD to move, tap the canvas to jump-travel there, or
+            use the on-screen D-pad above on a phone. Follow the compass. Bump a
+            villain to battle it.
           </div>
         </div>
       )}
@@ -256,7 +299,7 @@ export default function Game({ career, topic, notes = "", onClose }) {
 // instead of document.getElementById, so it doesn't leak outside this
 // component and can be safely torn down on unmount.
 // ---------------------------------------------------------------------
-function runGameEngine(gameData, canvas, root, onWinNewGame) {
+function runGameEngine(gameData, canvas, root, onWinNewGame, controls) {
   const $ = (name) => root.querySelector(`[data-el="${name}"]`);
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
@@ -539,6 +582,17 @@ function runGameEngine(gameData, canvas, root, onWinNewGame) {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
 
+  // Let the on-screen touch controls drive the exact same `keys` state
+  // as the keyboard, so phones/tablets can play without a keyboard.
+  if (controls) {
+    controls.press = (k) => {
+      keys[k] = true;
+    };
+    controls.release = (k) => {
+      keys[k] = false;
+    };
+  }
+
   const SPEED = 4;
   function movePlayer() {
     if (inDialogue || inBattle) {
@@ -811,5 +865,9 @@ function runGameEngine(gameData, canvas, root, onWinNewGame) {
     $("winNewGameBtn").removeEventListener("click", onWinNewGameClick);
     document.removeEventListener("keyup", onKeyUp);
     canvas.removeEventListener("click", onCanvasClick);
+    if (controls) {
+      controls.press = () => {};
+      controls.release = () => {};
+    }
   };
 }
