@@ -441,6 +441,97 @@ Rules:
     return data
 
 
+# ---------- STORY MODE (branching choice scenario) ----------
+class StoryRequest(BaseModel):
+    career: str
+    topic: str
+    notes: str = ""
+    provider: str = "auto"
+
+
+@app.post("/api/story")
+def generate_story(request: StoryRequest):
+    notes = _notes_block(request.notes)
+    if notes:
+        source_instruction = f"""Base the scenario, choices, and outcomes STRICTLY on the student's own
+notes below - do not invent situations or lessons that aren't supported
+by these notes.
+
+--- STUDENT'S NOTES ---
+{notes}
+--- END NOTES ---
+"""
+    else:
+        source_instruction = ""
+
+    prompt = f"""You are designing a short branching "choose your path" story scenario
+for a {request.career} student learning about "{request.topic}". This is a
+choice-driven visual-novel style mini-game: the student is dropped into a
+realistic situation related to "{request.topic}", faces a decision with two
+options, and each option leads to a further decision, which finally leads
+to an ending that shows the consequence of the whole path taken and what
+it teaches about "{request.topic}".
+
+{source_instruction}
+Build EXACTLY this tree shape:
+- One root decision node ("root").
+- Root has exactly 2 choices, leading to two level-1 decision nodes.
+- Each level-1 node has exactly 2 choices, leading to four total ending nodes.
+- Every ending node is a leaf (no choices) and explains the realistic
+  consequence of that specific path, plus the lesson it teaches.
+
+Respond ONLY with valid JSON, no markdown, no backticks, no extra text.
+Use this exact structure:
+{{
+  "title": "short title for the scenario",
+  "start": "root",
+  "nodes": {{
+    "root": {{
+      "text": "2-4 sentences setting up a realistic situation and the decision the student must make",
+      "choices": [
+        {{"label": "short label for option A", "next": "n1a"}},
+        {{"label": "short label for option B", "next": "n1b"}}
+      ]
+    }},
+    "n1a": {{
+      "text": "2-4 sentences on what happens immediately after choosing option A, then a follow-up decision",
+      "choices": [
+        {{"label": "short label", "next": "end_1"}},
+        {{"label": "short label", "next": "end_2"}}
+      ]
+    }},
+    "n1b": {{
+      "text": "2-4 sentences on what happens immediately after choosing option B, then a follow-up decision",
+      "choices": [
+        {{"label": "short label", "next": "end_3"}},
+        {{"label": "short label", "next": "end_4"}}
+      ]
+    }},
+    "end_1": {{
+      "text": "3-5 sentences narrating the final consequence of this exact path",
+      "outcome": "good | mixed | poor",
+      "lesson": "1-2 sentence takeaway connecting this path to {request.topic}"
+    }},
+    "end_2": {{ "text": "...", "outcome": "good | mixed | poor", "lesson": "..." }},
+    "end_3": {{ "text": "...", "outcome": "good | mixed | poor", "lesson": "..." }},
+    "end_4": {{ "text": "...", "outcome": "good | mixed | poor", "lesson": "..." }}
+  }}
+}}
+
+Rules:
+- Node ids must be exactly: root, n1a, n1b, end_1, end_2, end_3, end_4 (n1a's choices point to end_1 and end_2; n1b's choices point to end_3 and end_4).
+- "outcome" must be exactly one of: "good", "mixed", "poor" - reflect the realistic quality of that path's result, not just "choice A is always good."
+- Not every path needs to be a simple right/wrong dichotomy - realistic situations can have mixed or nuanced outcomes.
+- All content must be realistic, age-appropriate, and specific to "{request.topic}" for a {request.career} student."""
+
+    data = call_llm_json(JSON_SYSTEM_PROMPT, prompt, request.provider)
+    nodes = data.get("nodes") or {}
+    required = ["root", "n1a", "n1b", "end_1", "end_2", "end_3", "end_4"]
+    if not all(k in nodes for k in required):
+        raise HTTPException(status_code=500, detail="Model returned an incomplete story tree. Try again.")
+    return data
+
+
 # ---------- MEMORY MATCH ----------
 class MemoryRequest(BaseModel):
     career: str

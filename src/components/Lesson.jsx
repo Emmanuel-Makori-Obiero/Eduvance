@@ -6,6 +6,7 @@ import Spinner from "./Spinner";
 import Game from "./game";
 import Platformer from "./platformer";
 import MemoryGame from "./MemoryGame";
+import StoryGame from "./StoryGame";
 import NotesInput from "./NotesInput";
 
 const PLAY_MODES = [
@@ -27,6 +28,12 @@ const PLAY_MODES = [
     desc: "Pair terms with their meanings.",
     marker: "var(--color-marker-2)",
   },
+  {
+    key: "story",
+    label: "Story mode",
+    desc: "Live out a scenario — your choices shape what happens.",
+    marker: "var(--color-marker-1)",
+  },
 ];
 
 export default function Lesson({ career }) {
@@ -38,6 +45,7 @@ export default function Lesson({ career }) {
   const [showGame, setShowGame] = useState(false);
   const [showPlatformer, setShowPlatformer] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [showStory, setShowStory] = useState(false);
   const [regeneratingQuiz, setRegeneratingQuiz] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -142,6 +150,17 @@ export default function Lesson({ career }) {
     );
   }
 
+  if (showStory) {
+    return (
+      <StoryGame
+        career={career}
+        topic={topic.trim() || "the topics covered in your notes"}
+        notes={notes}
+        onClose={() => setShowStory(false)}
+      />
+    );
+  }
+
   return (
     <div className="lg:grid lg:grid-cols-[1fr_260px] lg:gap-10 lg:items-start">
       <div className="min-w-0">
@@ -197,6 +216,7 @@ export default function Lesson({ career }) {
                 if (key === "game") setShowGame(true);
                 if (key === "platformer") setShowPlatformer(true);
                 if (key === "memory") setShowMemory(true);
+                if (key === "story") setShowStory(true);
               }}
             />
           </div>
@@ -339,6 +359,7 @@ export default function Lesson({ career }) {
             if (key === "game") setShowGame(true);
             if (key === "platformer") setShowPlatformer(true);
             if (key === "memory") setShowMemory(true);
+            if (key === "story") setShowStory(true);
           }}
         />
       </aside>
