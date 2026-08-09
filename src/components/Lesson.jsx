@@ -7,6 +7,7 @@ import Game from "./game";
 import Platformer from "./platformer";
 import MemoryGame from "./MemoryGame";
 import StoryGame from "./StoryGame";
+import NovelBook from "./NovelBook";
 import NotesInput from "./NotesInput";
 
 const PLAY_MODES = [
@@ -34,6 +35,12 @@ const PLAY_MODES = [
     desc: "Live out a scenario — your choices shape what happens.",
     marker: "var(--color-marker-1)",
   },
+  {
+    key: "novel",
+    label: "Novel",
+    desc: "A short book in your genre, with the lesson woven in.",
+    marker: "var(--color-marker-3)",
+  },
 ];
 
 export default function Lesson({ career }) {
@@ -46,6 +53,7 @@ export default function Lesson({ career }) {
   const [showPlatformer, setShowPlatformer] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showStory, setShowStory] = useState(false);
+  const [showNovel, setShowNovel] = useState(false);
   const [regeneratingQuiz, setRegeneratingQuiz] = useState(false);
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -161,6 +169,17 @@ export default function Lesson({ career }) {
     );
   }
 
+  if (showNovel) {
+    return (
+      <NovelBook
+        career={career}
+        topic={topic.trim() || "the topics covered in your notes"}
+        notes={notes}
+        onClose={() => setShowNovel(false)}
+      />
+    );
+  }
+
   return (
     <div className="lg:grid lg:grid-cols-[1fr_260px] lg:gap-10 lg:items-start">
       <div className="min-w-0">
@@ -217,6 +236,7 @@ export default function Lesson({ career }) {
                 if (key === "platformer") setShowPlatformer(true);
                 if (key === "memory") setShowMemory(true);
                 if (key === "story") setShowStory(true);
+                if (key === "novel") setShowNovel(true);
               }}
             />
           </div>
@@ -360,6 +380,7 @@ export default function Lesson({ career }) {
             if (key === "platformer") setShowPlatformer(true);
             if (key === "memory") setShowMemory(true);
             if (key === "story") setShowStory(true);
+            if (key === "novel") setShowNovel(true);
           }}
         />
       </aside>
