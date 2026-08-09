@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
@@ -66,15 +67,39 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "gemma4:e4b"
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
-)
+
+# Every model in this chain is hosted by the Gemini API and uses the SAME
+# API key -- no separate account or key needed for any of them. When the
+# model currently being tried is rate-limited or temporarily unavailable,
+# the next one in the list is tried automatically, since each is a
+# distinct model with its own separate quota bucket. Order = preference:
+# best/fastest first, most resilient (smallest/most available) last.
+# Override with a comma-separated FALLBACK_CHAIN env var if you want a
+# different lineup.
+DEFAULT_FALLBACK_CHAIN = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemma-4-26b-a4b-it",
+    "gemma-4-31b-it",
+]
+FALLBACK_CHAIN = [
+    m.strip()
+    for m in os.environ.get(
+        "FALLBACK_CHAIN", ",".join(DEFAULT_FALLBACK_CHAIN)
+    ).split(",")
+    if m.strip()
+]
+
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def _model_url(model_id: str) -> str:
+    return f"{GEMINI_API_BASE}/{model_id}:generateContent"
+
 
 # Exceptions that mean "the Ollama server isn't reachable right now" as
 # opposed to "Ollama reached us but errored" -- only these trigger an
-# automatic fallback to Gemini in "auto" mode.
+# automatic fallback to the hosted chain in "auto" mode.
 OLLAMA_UNREACHABLE_ERRORS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
@@ -86,15 +111,24 @@ def list_providers():
     """Lets the frontend know which providers are actually usable right now,
     so it can hide/disable the online option if no key is configured, and
     show whether auto-fallback is currently possible."""
+    chain_label = (
+        "Online (" + " \u2192 ".join(FALLBACK_CHAIN) + ")"
+        if FALLBACK_CHAIN
+        else "Online (Gemini)"
+    )
     return {
         "ollama": {"available": True, "label": "Offline (Ollama)"},
         "gemini": {
             "available": bool(GOOGLE_API_KEY),
-            "label": "Online (Gemini)",
+            "label": chain_label,
+        },
+        "gemma": {
+            "available": bool(GOOGLE_API_KEY),
+            "label": "Online (Gemma 4, fallback)",
         },
         "auto": {
             "available": True,
-            "label": "Auto (Ollama, falls back to Gemini)",
+            "label": f"Auto (Ollama, falls back through {len(FALLBACK_CHAIN)} hosted models)",
             "fallback_ready": bool(GOOGLE_API_KEY),
         },
     }
@@ -123,7 +157,10 @@ def _call_ollama(system: str, user_prompt: str) -> str:
     return result["message"]["content"]
 
 
-def _call_gemini(system: str, user_prompt: str) -> str:
+def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) -> str:
+    """Shared implementation for calling any model hosted on the Gemini
+    API (Gemini itself, or Gemma 4) -- same request/response shape, same
+    API key, just a different URL/model."""
     if not GOOGLE_API_KEY:
         raise HTTPException(
             status_code=400,
@@ -136,29 +173,47 @@ def _call_gemini(system: str, user_prompt: str) -> str:
         "contents": [{"parts": [{"text": user_prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"},
     }
-    try:
-        response = requests.post(
-            GEMINI_URL,
-            params={"key": GOOGLE_API_KEY},
-            json=payload,
-            timeout=120,
-        )
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        # requests' default error message includes the full request URL,
-        # which contains the API key as a query param -- never let that
-        # reach a client or a log. Report the status only.
-        status = e.response.status_code if e.response is not None else "unknown"
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini API request failed (status {status}). Check that "
-                   f"your GOOGLE_API_KEY is valid and has quota remaining.",
-        )
-    except requests.exceptions.RequestException:
-        raise HTTPException(
-            status_code=502,
-            detail="Couldn't reach the Gemini API (network error).",
-        )
+
+    # 429 (rate limit) is often transient -- the free tier's per-minute
+    # limit resets quickly, so a short backoff-and-retry recovers from it
+    # automatically instead of failing the student's request outright.
+    RATE_LIMIT_RETRY_DELAYS = [2, 5]
+
+    for attempt in range(len(RATE_LIMIT_RETRY_DELAYS) + 1):
+        try:
+            response = requests.post(
+                url,
+                params={"key": GOOGLE_API_KEY},
+                json=payload,
+                timeout=120,
+            )
+            response.raise_for_status()
+            break
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status == 429 and attempt < len(RATE_LIMIT_RETRY_DELAYS):
+                time.sleep(RATE_LIMIT_RETRY_DELAYS[attempt])
+                continue
+            # requests' default error message includes the full request
+            # URL, which contains the API key as a query param -- never
+            # let that reach a client or a log. Report the status only.
+            if status == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"{model_label}'s free-tier rate limit was hit "
+                           f"and didn't recover after retrying.",
+                )
+            raise HTTPException(
+                status_code=502,
+                detail=f"{model_label} request failed (status {status or 'unknown'}). "
+                       f"Check that your GOOGLE_API_KEY is valid and has quota "
+                       f"remaining.",
+            )
+        except requests.exceptions.RequestException:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Couldn't reach {model_label} (network error).",
+            )
 
     result = response.json()
     try:
@@ -166,23 +221,86 @@ def _call_gemini(system: str, user_prompt: str) -> str:
     except (KeyError, IndexError):
         raise HTTPException(
             status_code=500,
-            detail="Gemini returned an unexpected response shape.",
+            detail=f"{model_label} returned an unexpected response shape.",
         )
+
+
+def _call_hosted_model(system: str, user_prompt: str, model_id: str) -> str:
+    return _call_gemini_api(system, user_prompt, _model_url(model_id), model_id)
+
+
+# HTTPExceptions from a hosted-model call that mean "this specific model
+# is rate-limited or unavailable right now" -- not an auth/key problem,
+# so it's safe and useful to transparently retry the SAME request against
+# the next model in the chain rather than failing outright.
+def _is_capacity_error(exc: HTTPException) -> bool:
+    return exc.status_code in (429, 502, 503)
+
+
+def _call_hosted_chain(system: str, user_prompt: str, start_at: str = None) -> str:
+    """Walks FALLBACK_CHAIN in order, trying each hosted model until one
+    succeeds. Only capacity-type failures (rate limit / temporarily
+    unavailable) move on to the next model -- a real error (bad key,
+    malformed request) is raised immediately rather than burning through
+    the whole chain for no reason.
+
+    `start_at` lets a caller jump into the chain partway through (e.g. the
+    explicit "gemma" provider starts at the first Gemma model instead of
+    retrying Gemini first).
+    """
+    if not FALLBACK_CHAIN:
+        raise HTTPException(
+            status_code=500,
+            detail="No hosted models are configured (FALLBACK_CHAIN is empty).",
+        )
+
+    models = FALLBACK_CHAIN
+    if start_at:
+        matching = [i for i, m in enumerate(models) if m == start_at]
+        if matching:
+            models = models[matching[0]:]
+
+    last_exc = None
+    for i, model_id in enumerate(models):
+        try:
+            return _call_hosted_model(system, user_prompt, model_id)
+        except HTTPException as e:
+            last_exc = e
+            is_last_model = i == len(models) - 1
+            if not _is_capacity_error(e) or is_last_model:
+                raise
+            continue
+
+    raise last_exc or HTTPException(
+        status_code=502,
+        detail="All hosted models are currently unavailable. Try again shortly.",
+    )
+
+
+
 
 
 def call_llm(system: str, user_prompt: str, provider: str = "auto") -> str:
     """Routes to the chosen provider and returns the raw text response.
 
     "auto" tries Ollama first (short timeout, since a down local server
-    should fail fast) and transparently falls back to Gemini if Ollama
-    isn't reachable at all. If Ollama IS reachable but errors for some
-    other reason (bad response, model error), that error is raised as-is
-    rather than silently swapping providers.
+    should fail fast), then walks the full hosted FALLBACK_CHAIN --
+    Gemini, then progressively lighter/more-available models, all on the
+    same API key -- stopping at the first one that responds. If Ollama IS
+    reachable but errors for some other reason (bad response, model
+    error), that error is raised as-is rather than silently swapping
+    providers.
     """
     provider = (provider or "auto").lower()
 
     if provider == "gemini":
-        return _call_gemini(system, user_prompt)
+        return _call_hosted_chain(system, user_prompt)
+
+    if provider == "gemma":
+        first_gemma = next(
+            (m for m in FALLBACK_CHAIN if m.startswith("gemma")), None
+        )
+        return _call_hosted_chain(system, user_prompt, start_at=first_gemma)
 
     if provider == "ollama":
         return _call_ollama(system, user_prompt)
@@ -191,19 +309,19 @@ def call_llm(system: str, user_prompt: str, provider: str = "auto") -> str:
         try:
             return _call_ollama(system, user_prompt)
         except OLLAMA_UNREACHABLE_ERRORS:
-            if GOOGLE_API_KEY:
-                return _call_gemini(system, user_prompt)
-            raise HTTPException(
-                status_code=503,
-                detail="Your offline model isn't running (couldn't reach "
-                       "Ollama), and no Gemini backup key is configured. "
-                       "Start Ollama, or set GOOGLE_API_KEY in your .env "
-                       "file to enable the automatic backup.",
-            )
+            if not GOOGLE_API_KEY:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Your offline model isn't running (couldn't reach "
+                           "Ollama), and no Gemini backup key is configured. "
+                           "Start Ollama, or set GOOGLE_API_KEY in your .env "
+                           "file to enable the automatic backup.",
+                )
+            return _call_hosted_chain(system, user_prompt)
 
     raise HTTPException(
         status_code=400,
-        detail=f"Unknown provider '{provider}'. Use 'auto', 'ollama', or 'gemini'.",
+        detail=f"Unknown provider '{provider}'. Use 'auto', 'ollama', 'gemini', or 'gemma'.",
     )
 
 
