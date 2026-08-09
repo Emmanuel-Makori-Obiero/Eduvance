@@ -25,9 +25,12 @@ app.add_middleware(
 )
 
 # ---------- MODEL PROVIDERS ----------
-# Two providers are supported:
-#   "ollama" - your existing local/offline model (default, no key needed)
-#   "gemini" - Google AI Studio's Gemini API (needs GOOGLE_API_KEY)
+# Three provider modes are supported:
+#   "auto"   - (default) try your local Ollama server first; if it's not
+#              reachable (server off, not started, wrong port), fall back
+#              to Gemini automatically -- this is the "backup" behavior.
+#   "ollama" - force local/offline only, never fall back.
+#   "gemini" - force online only, skip Ollama entirely.
 #
 # The key is NEVER hardcoded here or sent from the frontend. It's read
 # from the environment at request time, which is populated from a local
@@ -44,16 +47,30 @@ GEMINI_URL = (
     f"{GEMINI_MODEL}:generateContent"
 )
 
+# Exceptions that mean "the Ollama server isn't reachable right now" as
+# opposed to "Ollama reached us but errored" -- only these trigger an
+# automatic fallback to Gemini in "auto" mode.
+OLLAMA_UNREACHABLE_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+
 
 @app.get("/api/providers")
 def list_providers():
     """Lets the frontend know which providers are actually usable right now,
-    so it can hide/disable the online option if no key is configured."""
+    so it can hide/disable the online option if no key is configured, and
+    show whether auto-fallback is currently possible."""
     return {
         "ollama": {"available": True, "label": "Offline (Ollama)"},
         "gemini": {
             "available": bool(GOOGLE_API_KEY),
             "label": "Online (Gemini)",
+        },
+        "auto": {
+            "available": True,
+            "label": "Auto (Ollama, falls back to Gemini)",
+            "fallback_ready": bool(GOOGLE_API_KEY),
         },
     }
 
@@ -75,7 +92,7 @@ def _call_ollama(system: str, user_prompt: str) -> str:
         ],
         "stream": False,
     }
-    response = requests.post(OLLAMA_URL, json=payload, timeout=120)
+    response = requests.post(OLLAMA_URL, json=payload, timeout=15)
     response.raise_for_status()
     result = response.json()
     return result["message"]["content"]
@@ -94,13 +111,30 @@ def _call_gemini(system: str, user_prompt: str) -> str:
         "contents": [{"parts": [{"text": user_prompt}]}],
         "generationConfig": {"response_mime_type": "application/json"},
     }
-    response = requests.post(
-        GEMINI_URL,
-        params={"key": GOOGLE_API_KEY},
-        json=payload,
-        timeout=120,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.post(
+            GEMINI_URL,
+            params={"key": GOOGLE_API_KEY},
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        # requests' default error message includes the full request URL,
+        # which contains the API key as a query param -- never let that
+        # reach a client or a log. Report the status only.
+        status = e.response.status_code if e.response is not None else "unknown"
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API request failed (status {status}). Check that "
+                   f"your GOOGLE_API_KEY is valid and has quota remaining.",
+        )
+    except requests.exceptions.RequestException:
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn't reach the Gemini API (network error).",
+        )
+
     result = response.json()
     try:
         return result["candidates"][0]["content"]["parts"][0]["text"]
@@ -111,20 +145,44 @@ def _call_gemini(system: str, user_prompt: str) -> str:
         )
 
 
-def call_llm(system: str, user_prompt: str, provider: str = "ollama") -> str:
-    """Routes to the chosen provider and returns the raw text response."""
-    provider = (provider or "ollama").lower()
+def call_llm(system: str, user_prompt: str, provider: str = "auto") -> str:
+    """Routes to the chosen provider and returns the raw text response.
+
+    "auto" tries Ollama first (short timeout, since a down local server
+    should fail fast) and transparently falls back to Gemini if Ollama
+    isn't reachable at all. If Ollama IS reachable but errors for some
+    other reason (bad response, model error), that error is raised as-is
+    rather than silently swapping providers.
+    """
+    provider = (provider or "auto").lower()
+
     if provider == "gemini":
         return _call_gemini(system, user_prompt)
+
     if provider == "ollama":
         return _call_ollama(system, user_prompt)
+
+    if provider == "auto":
+        try:
+            return _call_ollama(system, user_prompt)
+        except OLLAMA_UNREACHABLE_ERRORS:
+            if GOOGLE_API_KEY:
+                return _call_gemini(system, user_prompt)
+            raise HTTPException(
+                status_code=503,
+                detail="Your offline model isn't running (couldn't reach "
+                       "Ollama), and no Gemini backup key is configured. "
+                       "Start Ollama, or set GOOGLE_API_KEY in your .env "
+                       "file to enable the automatic backup.",
+            )
+
     raise HTTPException(
         status_code=400,
-        detail=f"Unknown provider '{provider}'. Use 'ollama' or 'gemini'.",
+        detail=f"Unknown provider '{provider}'. Use 'auto', 'ollama', or 'gemini'.",
     )
 
 
-def call_llm_json(system: str, user_prompt: str, provider: str = "ollama") -> dict:
+def call_llm_json(system: str, user_prompt: str, provider: str = "auto") -> dict:
     """Calls the model and parses its response as JSON, with the shared
     error handling every endpoint below used to duplicate."""
     try:
@@ -136,8 +194,14 @@ def call_llm_json(system: str, user_prompt: str, provider: str = "ollama") -> di
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Deliberately not including str(e) here -- some exceptions (e.g.
+        # from the requests library) embed the full request URL, which can
+        # contain the Gemini API key as a query param. Never surface that.
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong generating a response. Try again.",
+        )
 
 
 JSON_SYSTEM_PROMPT = (
@@ -149,7 +213,7 @@ JSON_SYSTEM_PROMPT = (
 # ---------- CHAT (Phase 1) ----------
 class ChatRequest(BaseModel):
     message: str
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 @app.post("/api/tutor")
@@ -163,8 +227,11 @@ def chat_with_tutor(request: ChatRequest):
         return {"response": content}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong reaching the tutor. Try again.",
+        )
 
 
 # ---------- LESSON + QUIZ (Phase 3) ----------
@@ -172,7 +239,7 @@ class LessonRequest(BaseModel):
     career: str
     topic: str
     notes: str = ""
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 def _notes_block(notes: str, limit: int = 6000) -> str:
@@ -229,7 +296,7 @@ Generate exactly 5 quiz questions."""
 class NextTopicRequest(BaseModel):
     career: str
     previous_topics: list[str]
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 @app.post("/api/next-topic")
@@ -254,7 +321,7 @@ class QuizRequest(BaseModel):
     career: str
     topic: str
     lesson: str
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 @app.post("/api/quiz")
@@ -288,7 +355,7 @@ class GameRequest(BaseModel):
     career: str
     topic: str
     notes: str = ""
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 @app.post("/api/game")
@@ -379,7 +446,7 @@ class MemoryRequest(BaseModel):
     career: str
     topic: str
     notes: str = ""
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 @app.post("/api/memory")
@@ -427,7 +494,7 @@ class CodeRequest(BaseModel):
     prompt: str = ""   # used for "generate": what to build
     code: str = ""      # used for "review" and "fix": the student's current code
     error: str = ""     # used for "fix": the error message/traceback, if any
-    provider: str = "ollama"
+    provider: str = "auto"
 
 
 def _build_code_prompt(request: CodeRequest) -> str:
