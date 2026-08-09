@@ -174,9 +174,13 @@ def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) 
         "generationConfig": {"response_mime_type": "application/json"},
     }
 
-    # 429 (rate limit) is often transient -- the free tier's per-minute
-    # limit resets quickly, so a short backoff-and-retry recovers from it
-    # automatically instead of failing the student's request outright.
+    # 429 (rate limit) and 503 (model temporarily overloaded) are
+    # transient -- the free tier's per-minute limit resets quickly, so a
+    # short backoff-and-retry recovers from it automatically instead of
+    # failing the student's request outright. Everything else (bad key,
+    # permission denied, bad request, model not found) is NOT transient
+    # and retrying won't help -- fail immediately with the real reason
+    # instead of masking it as a generic error.
     RATE_LIMIT_RETRY_DELAYS = [2, 5]
 
     for attempt in range(len(RATE_LIMIT_RETRY_DELAYS) + 1):
@@ -191,23 +195,48 @@ def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) 
             break
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
-            if status == 429 and attempt < len(RATE_LIMIT_RETRY_DELAYS):
+            if status in (429, 503) and attempt < len(RATE_LIMIT_RETRY_DELAYS):
                 time.sleep(RATE_LIMIT_RETRY_DELAYS[attempt])
                 continue
+
             # requests' default error message includes the full request
             # URL, which contains the API key as a query param -- never
-            # let that reach a client or a log. Report the status only.
+            # let that reach a client or a log. Report the status only,
+            # but keep the real status code so the caller can tell a
+            # transient issue apart from a permanent one (bad key, no
+            # permission, model not found, etc.) instead of everything
+            # looking like a generic 502.
             if status == 429:
                 raise HTTPException(
                     status_code=429,
                     detail=f"{model_label}'s free-tier rate limit was hit "
                            f"and didn't recover after retrying.",
                 )
+            if status == 503:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"{model_label} is temporarily overloaded on "
+                           f"Google's side and didn't recover after retrying.",
+                )
+            if status in (400, 404):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{model_label} rejected the request (status {status}) "
+                           f"-- this usually means the model name is wrong or the "
+                           f"request was malformed, not a quota issue.",
+                )
+            if status in (401, 403):
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"{model_label} rejected the API key (status {status}). "
+                           f"Your GOOGLE_API_KEY is likely invalid, revoked, or "
+                           f"doesn't have access to this model. Generate a new key "
+                           f"at https://aistudio.google.com/apikey and update it "
+                           f"in Render's Environment settings.",
+                )
             raise HTTPException(
                 status_code=502,
-                detail=f"{model_label} request failed (status {status or 'unknown'}). "
-                       f"Check that your GOOGLE_API_KEY is valid and has quota "
-                       f"remaining.",
+                detail=f"{model_label} request failed (status {status or 'unknown'}).",
             )
         except requests.exceptions.RequestException:
             raise HTTPException(
@@ -234,7 +263,7 @@ def _call_hosted_model(system: str, user_prompt: str, model_id: str) -> str:
 # so it's safe and useful to transparently retry the SAME request against
 # the next model in the chain rather than failing outright.
 def _is_capacity_error(exc: HTTPException) -> bool:
-    return exc.status_code in (429, 502, 503)
+    return exc.status_code in (429, 503)
 
 
 def _call_hosted_chain(system: str, user_prompt: str, start_at: str = None) -> str:
