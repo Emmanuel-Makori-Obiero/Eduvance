@@ -1,9 +1,24 @@
 const PROVIDER_KEY = "eduvance_provider";
 
-// "ollama" = your local/offline model (default)
-// "gemini" = Google AI Studio's Gemini API (needs a server-side key)
+// The Electron desktop build bundles/runs a local Ollama server, so
+// defaulting to "ollama" there is correct and free. The deployed web
+// build has no local model to talk to -- a first-time visitor with
+// nothing in localStorage yet would otherwise have every request sent
+// with provider="ollama" straight to the hosted backend, which can
+// never reach Ollama and would fail immediately. Electron sets
+// "Electron" in the user agent by default, which is a reliable way to
+// tell the two builds apart without any extra wiring.
+const isElectron =
+  typeof navigator !== "undefined" &&
+  /Electron/i.test(navigator.userAgent || "");
+
+const DEFAULT_PROVIDER = isElectron ? "ollama" : "gemini";
+
+// "ollama" = your local/offline model (desktop app default)
+// "gemini" = Google AI Studio's Gemini API (web app default; needs a
+//            server-side key configured on the backend)
 export function getProvider() {
-  return localStorage.getItem(PROVIDER_KEY) || "ollama";
+  return localStorage.getItem(PROVIDER_KEY) || DEFAULT_PROVIDER;
 }
 
 export function setProvider(provider) {

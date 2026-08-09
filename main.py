@@ -171,7 +171,22 @@ def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) 
     payload = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"parts": [{"text": user_prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json"},
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            # Gemini 2.5+ models have "thinking" enabled by default, and
+            # thinking tokens are deducted from the SAME output token
+            # budget as the actual JSON response. On a long structured
+            # task (a full lesson + 5 quiz questions, an 8-page novel,
+            # etc.) the model can spend its whole budget thinking and
+            # return an empty/truncated "text" part -- which then fails
+            # json.loads() here and looks like "the model is broken" when
+            # it's really a silent truncation. Disabling thinking makes
+            # avoids this silent-truncation failure mode entirely.
+            # A generous max_output_tokens is set too so long structured
+            # responses (novel/game/story modes) aren't cut off either.
+            "thinkingConfig": {"thinkingBudget": 0},
+            "maxOutputTokens": 8192,
+        },
     }
 
     # 429 (rate limit) and 503 (model temporarily overloaded) are
@@ -256,12 +271,44 @@ def _call_gemini_api(system: str, user_prompt: str, url: str, model_label: str) 
 
     result = response.json()
     try:
-        return result["candidates"][0]["content"]["parts"][0]["text"]
+        candidate = result["candidates"][0]
+        text = candidate["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
+        # A safety block (finishReason "SAFETY"/"PROHIBITED_CONTENT") or a
+        # response with no parts at all lands here -- there's no "text"
+        # to fall back on, so surface a clear reason instead of a raw
+        # KeyError.
+        finish_reason = None
+        try:
+            finish_reason = result["candidates"][0].get("finishReason")
+        except (KeyError, IndexError):
+            pass
+        if finish_reason and finish_reason not in ("STOP", "MAX_TOKENS"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{model_label} declined to answer (reason: "
+                       f"{finish_reason}). Try rephrasing the topic/notes.",
+            )
         raise HTTPException(
             status_code=500,
             detail=f"{model_label} returned an unexpected response shape.",
         )
+
+    # finishReason MAX_TOKENS with response_mime_type=json almost always
+    # means the JSON got cut off mid-structure -- json.loads() further up
+    # the call chain would fail on this anyway, but raising here gives a
+    # much clearer error message than a generic "invalid JSON" one, and
+    # avoids burning the second of the two JSON-parse retry attempts on
+    # a response we already know is truncated.
+    if candidate.get("finishReason") == "MAX_TOKENS":
+        raise HTTPException(
+            status_code=500,
+            detail=f"{model_label}'s response was cut off (hit the output "
+                   f"token limit) before finishing valid JSON. Try again, "
+                   f"or shorten the notes/topic.",
+        )
+
+    return text
 
 
 def _call_hosted_model(system: str, user_prompt: str, model_id: str) -> str:
@@ -348,7 +395,26 @@ def call_llm(system: str, user_prompt: str, provider: str = "auto") -> str:
         return _call_hosted_chain(system, user_prompt, start_at=first_gemma)
 
     if provider == "ollama":
-        return _call_ollama(system, user_prompt)
+        try:
+            return _call_ollama(system, user_prompt)
+        except OLLAMA_UNREACHABLE_ERRORS:
+            # Explicitly-forced "ollama" (as opposed to "auto") used to
+            # let this ConnectionError/Timeout bubble straight up into an
+            # unhandled exception, which FastAPI turns into a bare,
+            # unhelpful 500. This matters in practice: Ollama can never
+            # be reached from the deployed Render backend (it only runs
+            # on someone's local machine), so anyone whose frontend ever
+            # sends provider="ollama" against the deployed BASE_URL hits
+            # this every time.
+            raise HTTPException(
+                status_code=503,
+                detail="Couldn't reach your offline model (Ollama isn't "
+                       "running, or isn't reachable from this server). "
+                       "Offline mode only works when the backend and "
+                       "Ollama are running on the same machine -- switch "
+                       "to 'auto' or 'gemini' when using the deployed "
+                       "backend.",
+            )
 
     if provider == "auto":
         try:
